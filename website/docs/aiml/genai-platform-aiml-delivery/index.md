@@ -1,9 +1,7 @@
 ---
 title: "Gen AI assisted Platform Engineering for MLOps"
 sidebar_custom_props:
-  {
-    "explore": "https://catalog.us-east-1.prod.workshops.aws/modernengg/en-US",
-  }
+  { "explore": "https://catalog.us-east-1.prod.workshops.aws/modernengg/en-US" }
 sidebar_position: 90
 ---
 

@@ -5,4 +5,3 @@ We'll use the Kubernetes default `172.16.0.0/16` for our remote pod cidr.
 
 - [ ] Create `10.42.0.0/16` "remote cidr"
 - [ ] Create Transit Gateway connection between default workshop vpc and our remote
-

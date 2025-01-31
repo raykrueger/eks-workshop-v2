@@ -6,6 +6,8 @@ Statement:
       - ec2:Describe*
       - ec2:List*
       - ec2:RunInstances
+      - ec2:ImportKeyPair
+      - ec2:DeleteKeyPair
     Resource: ["*"]
   - Effect: Allow
     Action:
