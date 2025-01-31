@@ -101,13 +101,7 @@ module "key_pair" {
 
 resource "local_file" "key_pem" {
   content         = module.key_pair.private_key_pem
-  filename        = "${path.cwd}/private-key.pem"
-  file_permission = "0600"
-}
-
-resource "local_file" "key_pub_pem" {
-  content         = module.key_pair.public_key_pem
-  filename        = "${path.cwd}/public-key.pem"
+  filename        = "${path.cwd}/environment/private-key.pem"
   file_permission = "0600"
 }
 
