@@ -101,50 +101,14 @@ module "key_pair" {
 
 resource "local_file" "key_pem" {
   content         = module.key_pair.private_key_pem
-  filename        = "key.pem"
+  filename        = "${path.cwd}/private-key.pem"
   file_permission = "0600"
 }
 
 resource "local_file" "key_pub_pem" {
   content         = module.key_pair.public_key_pem
-  filename        = "key_pub.pem"
+  filename        = "${path.cwd}/public-key.pem"
   file_permission = "0600"
-}
-
-resource "local_file" "join" {
-  content  = <<-EOT
-    #!/usr/bin/env bash
-
-    # Use SCP/SSH to execute commands on the remote host
-    scp -i ${local_file.key_pem.filename} nodeConfig.yaml ubuntu@${aws_instance.hybrid_node["one"].public_ip}:/home/ubuntu/nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["one"].public_ip} sudo nodeadm init -c file://nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["one"].public_ip} sudo systemctl daemon-reload
-
-    scp -i ${local_file.key_pem.filename} nodeConfig.yaml ubuntu@${aws_instance.hybrid_node["two"].public_ip}:/home/ubuntu/nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["two"].public_ip} sudo nodeadm init -c file://nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["two"].public_ip} sudo systemctl daemon-reload
-
-    # Clean up
-    rm nodeConfig.yaml
-  EOT
-  filename = "join.sh"
-}
-
-# Get Ubuntu AMI for the current region
-data "aws_ami" "ubuntu" {
-  most_recent = true
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  owners = ["099720109477"] # Canonical
 }
 
 # Define the security group for the hybrid nodes
@@ -170,16 +134,16 @@ resource "aws_security_group" "hybrid_nodes" {
   tags = var.tags
 }
 
-# Create the EC2 instances
-resource "aws_instance" "hybrid_node" {
-  for_each = toset(["one", "two"])
+module "hybrid_node" {
+  source  = "terraform-aws-modules/ec2-instance/aws"
+  version = "~> 5.7.1"
 
-  ami           = data.aws_ami.ubuntu.id
+  ami_ssm_parameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+
   instance_type = "m5.large"
   subnet_id     = aws_subnet.remote_public[0].id
-  key_name      = module.key_pair.key_pair_name
-
   vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
+  key_name      = module.key_pair.key_pair_name
 
   user_data = <<-EOF
               #cloud-config
@@ -212,9 +176,7 @@ resource "aws_instance" "hybrid_node" {
                 - nodeadm --version
                 - kubectl version --client
               EOF
-
   tags = merge(var.tags, {
-    Name = "hybrid-node-${each.key}"
+    Name = "hybrid-node-01"
   })
 }
-
