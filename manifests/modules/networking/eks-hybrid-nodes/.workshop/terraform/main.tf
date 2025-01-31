@@ -146,7 +146,7 @@ module "hybrid_node" {
                 - unzip
 
               runcmd:
-                - cd /home/
+                - cd /tmp
                 - echo "Installing AWS CLI..."
                 - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                 - unzip awscliv2.zip
@@ -163,12 +163,8 @@ module "hybrid_node" {
                 - echo "Moving nodeadm to /usr/local/bin"
                 - mv nodeadm /usr/local/bin/
 
-                - echo "Installing nodeadm..."
-                - nodeadm install 1.31 --credential-provider ssm
-                
                 - echo "Verifying installations..."
                 - nodeadm --version
-                - kubectl version --client
               EOF
   tags = merge(var.tags, {
     Name = "hybrid-node-01"
