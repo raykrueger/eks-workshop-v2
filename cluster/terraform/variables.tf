@@ -21,3 +21,9 @@ variable "vpc_cidr" {
   type        = string
   default     = "10.42.0.0/16"
 }
+
+variable "remote_network_cidr" {
+  description = "CIDR for remote network where hybrid nodes can be deployed"
+  default     = "10.50.0.0/16"
+  type        = string
+}

@@ -54,6 +54,38 @@ module "eks" {
     }
   }
 
+  cluster_security_group_additional_rules = {
+    hybrid_node_rule =  {
+      cidr_blocks = [var.remote_network_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    } 
+  }
+
+  node_security_group_additional_rules = {
+    hybrid_node_rule = {
+      cidr_blocks = [var.remote_network_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+  }
+
+  cluster_remote_network_config = {
+    remote_node_networks = {
+      cidrs = [cidrsubnet(var.remote_network_cidr, 4, 0)]
+    }
+        
+    remote_pod_networks = {
+      cidrs = [cidrsubnet(var.remote_network_cidr, 4, 1)]
+    } 
+  }
+
   tags = merge(local.tags, {
     "karpenter.sh/discovery" = var.cluster_name
   })

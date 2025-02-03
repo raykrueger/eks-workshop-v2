@@ -1,86 +1,124 @@
-locals {
-  remote_vpc_cidr = "10.50.0.0/16"
-}
+data "aws_availability_zones" "available" {}
 
-provider "aws" {
-  region = "us-west-2"
-  alias  = "remote"
+locals {
+  name   = "${var.eks_cluster_id}-remote"
+  azs    = slice(data.aws_availability_zones.available.names, 0, 1)
+  remote_vpc_cidr = "10.50.0.0/16"
+  vpc_cidr = "10.42.0.0/16"
+  instance_type = "m5.large"
 }
 
 data "aws_region" "current" {}
 
-data "aws_vpc" "selected" {
+data "aws_vpc" "cluster" {
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
   }
 }
 
+data "aws_subnets" "cluster_private" {
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+  filter {
+    name   = "tag:Name"
+    values = ["*Private*"]
+  }
+}
+
+data "aws_subnets" "cluster_public" {
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+  filter {
+    name   = "tag:Name"
+    values = ["*Public*"]
+  }
+}
+
+data "aws_route_table" "cluster_private" {
+  subnet_id = data.aws_subnets.cluster_private[0].id
+}
+
 ################################################################################
 # Remote VPC
 ################################################################################
 
-# Create VPC in remote region
-resource "aws_vpc" "remote" {
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
 
-  cidr_block           = local.remote_vpc_cidr
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+  name = "${local.name}-remote"
+  cidr = local.remote_vpc_cidr
+  azs  = [local.azs
 
-  tags = merge(var.tags, {
-    Name = "remote-vpc"
-  })
+  public_subnets =  [cidrsubnet(local.remote_vpc_cidr, 4, 0)]
+  private_subnets = [cidrsubnet(local.remote_vpc_cidr, 4, 1)]     
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
+  
+  tags = var.tags
 }
 
-# Create public subnets in remote VPC
-resource "aws_subnet" "remote_public" {
-  count = 2
+module "tgw" {
+  source  = "terraform-aws-modules/transit-gateway/aws"
+  version = "~> 2.0"
 
-  vpc_id            = aws_vpc.remote.id
-  cidr_block        = cidrsubnet(local.remote_vpc_cidr, 8, count.index)
-  availability_zone = data.aws_availability_zones.remote.names[count.index]
+  name        = "{$local.name}-hybrid-tgw"
+  description = "TGW between cluster and remote vpc"
 
-  map_public_ip_on_launch = true
+  enable_auto_accept_shared_attachments = true
 
-  tags = merge(var.tags, {
-    Name = "remote-public-${count.index + 1}"
-  })
-}
+  vpc_attachments = {
+    remote_vpc = {
+      vpc_id       = module.vpc.vpc_id
+      subnet_ids   = [ module.vpc.public_subnets[0].id ]
+      dns_support  = true
+      ipv6_support = true
 
-# Internet Gateway for remote VPC
-resource "aws_internet_gateway" "remote" {
-  vpc_id = aws_vpc.remote.id
+      tgw_routes = [
+        {
+          destination_cidr_block = local.remote_vpc_cidr
+        }
+      ]
+    }
 
-  tags = merge(var.tags, {
-    Name = "remote-igw"
-  })
-}
+    cluster_vpc = {
+      vpc_id       = data.aws_vpc.cluster.vpc_id
+      subnet_ids   = [ data.aws_subnets.cluster_public ]
+      dns_support  = true
+      ipv6_support = true
 
-# Route table for remote public subnets
-resource "aws_route_table" "remote_public" {
-  vpc_id = aws_vpc.remote.id
+      tgw_routes = [
+        {
+          destination_cidr_block = local.vpc_cidr
+        }
+      ]
 
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.remote.id
+    }
   }
 
-  tags = merge(var.tags, {
-    Name = "remote-public-rt"
-  })
+  tags = var.tags
 }
 
-# Associate route table with public subnets
-resource "aws_route_table_association" "remote_public" {
-  count = 2
 
-  subnet_id      = aws_subnet.remote_public[count.index].id
-  route_table_id = aws_route_table.remote_public.id
+
+resource "aws_route" "remote_node_private" {
+  route_table_id            = one(module.vpc.public_route_table_ids)
+  destination_cidr_block    = local.vpc_cidr
+  transit_gateway_id        = module.tgw.ec2_transit_gateway_id
 }
 
-# Get available AZs in remote region
-data "aws_availability_zones" "remote" {
-  state = "available"
+resource "aws_route" "to_remote_node" {
+  route_table_id            = data.aws_route_table.cluster_private[0]
+  destination_cidr_block    = local.remote_vpc_cidr
+  transit_gateway_id        = module.tgw.ec2_transit_gateway_id
 }
 
 
@@ -130,21 +168,11 @@ resource "local_file" "join" {
   filename = "join.sh"
 }
 
-# Get Ubuntu AMI for the current region
 data "aws_ami" "ubuntu" {
+  name_regex  = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server--*"
   most_recent = true
 
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  owners = ["099720109477"] # Canonical
+  owners = ["099720109477"] 
 }
 
 # Define the security group for the hybrid nodes
@@ -170,51 +198,67 @@ resource "aws_security_group" "hybrid_nodes" {
   tags = var.tags
 }
 
-# Create the EC2 instances
-resource "aws_instance" "hybrid_node" {
-  for_each = toset(["one", "two"])
+resource "aws_vpc_security_group_ingress_rule" "from_cluster" {
+  cidr_ipv4                    = local.vpc_cidr
+  ip_protocol                  = "all"
+  security_group_id            = aws_security_group.hybrid_nodes.id
 
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "m5.large"
-  subnet_id     = aws_subnet.remote_public[0].id
-  key_name      = module.key_pair.key_pair_name
-
-  vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
-
-  user_data = <<-EOF
-              #cloud-config
-              package_update: true
-              packages:
-                - unzip
-
-              runcmd:
-                - cd /home/
-                - echo "Installing AWS CLI..."
-                - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                - unzip awscliv2.zip
-                - ./aws/install
-                - rm awscliv2.zip
-                - rm -rf aws/
-                - echo "Verifying AWS CLI installation..."
-                - aws --version
-                
-                - echo "Downloading nodeadm..."
-                - curl -OL 'https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm'
-                - chmod +x nodeadm
-                
-                - echo "Moving nodeadm to /usr/local/bin"
-                - mv nodeadm /usr/local/bin/
-
-                - echo "Installing nodeadm..."
-                - nodeadm install 1.31 --credential-provider ssm
-                
-                - echo "Verifying installations..."
-                - nodeadm --version
-                - kubectl version --client
-              EOF
-
-  tags = merge(var.tags, {
-    Name = "hybrid-node-${each.key}"
-  })
 }
 
+resource "aws_vpc_security_group_ingress_rule" "remote_node" {
+  
+  cidr_ipv4                    = local.remote_vpc_cidr
+  ip_protocol                  = "all"
+  security_group_id            = aws_security_group.hybrid_nodes.id
+  
+}
+
+# Create the EC2 instances
+resource "aws_instance" "hybrid_nodes" {
+
+  ami                         = data.aws_ami.ubuntu.id
+  associate_public_ip_address = true
+  instance_type               = local.instance_type
+  key_name      = module.key_pair.key_pair_name
+
+  # If not using user-data, block IMDS to make instance look less like EC2 and more like vanilla VM
+  metadata_options {
+    http_endpoint = "enabled"
+  }
+
+  root_block_device {
+    volume_size = 100
+    volume_type = "gp3"
+  }
+
+  source_dest_check = false
+
+  vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
+  subnet_id              = module.vpc.public_subnets[0]
+
+  user_data = <<-EOF
+              sudo apt-get update -y
+
+              curl "https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm" -o /usr/local/bin/nodeadm 
+              chmod +x /usr/local/bin/nodeadm
+              /usr/local/bin/nodeadm install "${var.eks_cluster_version}" --credential-provider "ssm"
+           
+              EOF
+
+  tags = merge(
+    var.tags,
+    { Name = "hybrid-node-1" }
+  )
+}
+
+module "eks_hybrid_node_role" {
+  source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
+  version = "~> 20.31"
+  tags = local.tags
+}
+
+resource "aws_eks_access_entry" "karpenter" {
+  cluster_name    = var.eks_cluster_id
+  principal_arn = module.eks_hybrid_node_role.arn
+  type          = "HYBRID_LINUX"
+}
