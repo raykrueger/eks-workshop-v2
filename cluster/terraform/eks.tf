@@ -1,3 +1,16 @@
+locals {
+  remote_node_cidr = cidrsubnet(var.remote_network_cidr, 8, 1)
+  remote_pod_cidr  = cidrsubnet(var.remote_network_cidr, 8, 2)
+}
+
+module "eks_hybrid_node_role" {
+  source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
+  version = "~> 20.31"
+
+  tags = merge(local.tags, {
+    Terraform   = "true"
+  })
+}
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
@@ -30,7 +43,33 @@ module "eks" {
 
   create_cluster_security_group = false
   create_node_security_group    = false
+  cluster_security_group_additional_rules = {
+    hybrid-all = {
+      cidr_blocks = [var.remote_network_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+  }
 
+  access_entries = {
+    hybrid-node-role = {
+      principal_arn = module.eks_hybrid_node_role.arn
+      type          = "HYBRID_LINUX"
+    }
+  }
+
+  cluster_remote_network_config = {
+    remote_node_networks = {
+      cidrs = [local.remote_node_cidr]
+    }
+    # Required if running webhooks on Hybrid nodes
+    remote_pod_networks = {
+      cidrs = [local.remote_pod_cidr]
+    }
+  }
   eks_managed_node_groups = {
     default = {
       instance_types           = ["m5.large"]

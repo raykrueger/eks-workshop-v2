@@ -1,5 +1,13 @@
 locals {
-  remote_vpc_cidr = "10.50.0.0/16"
+  remote_node_cidr    = cidrsubnet(var.remote_network_cidr, 8, 1) #10.52.1.0/24
+  remote_pod_cidr     = cidrsubnet(var.remote_network_cidr, 8, 2) #10.52.2.0/24
+
+  remote_node_azs = slice(data.aws_availability_zones.remote.names, 0, 3)
+
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
 }
 
 provider "aws" {
@@ -9,11 +17,33 @@ provider "aws" {
 
 data "aws_region" "current" {}
 
-data "aws_vpc" "selected" {
+# Primary VPC created for the EKS Cluster
+data "aws_vpc" "primary" {
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
   }
+}
+
+# Look up "primary" vpc subnet
+data "aws_subnets" "private" {
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+  filter {
+    name   = "tag:Name"
+    values = ["*Private*"]
+  }
+}
+
+# Lookup route tables for private subnets in the primary VPC
+data "aws_route_table" "private" {
+  count = length(data.aws_subnets.private.ids)
+
+  vpc_id    = data.aws_vpc.primary.id
+  subnet_id = data.aws_subnets.private.ids[count.index]
 }
 
 ################################################################################
@@ -23,27 +53,29 @@ data "aws_vpc" "selected" {
 # Create VPC in remote region
 resource "aws_vpc" "remote" {
 
-  cidr_block           = local.remote_vpc_cidr
+  cidr_block           = var.remote_network_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  tags = merge(var.tags, {
-    Name = "remote-vpc"
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-remote-vpc"
   })
 }
 
 # Create public subnets in remote VPC
 resource "aws_subnet" "remote_public" {
-  count = 2
+  count = 3
 
   vpc_id            = aws_vpc.remote.id
-  cidr_block        = cidrsubnet(local.remote_vpc_cidr, 8, count.index)
+  
+  # This will split 10.52.1.0/24 into three /26 subnets (10.52.1.0/26, 10.52.1.64/26, 10.52.1.128/26)
+  cidr_block        = cidrsubnet(local.remote_node_cidr, 2, count.index)
   availability_zone = data.aws_availability_zones.remote.names[count.index]
 
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, {
-    Name = "remote-public-${count.index + 1}"
+    Name = "${var.addon_context.eks_cluster_id}-remote-public-${count.index + 1}"
   })
 }
 
@@ -52,7 +84,7 @@ resource "aws_internet_gateway" "remote" {
   vpc_id = aws_vpc.remote.id
 
   tags = merge(var.tags, {
-    Name = "remote-igw"
+    Name = "${var.addon_context.eks_cluster_id}-remote-igw"
   })
 }
 
@@ -66,7 +98,7 @@ resource "aws_route_table" "remote_public" {
   }
 
   tags = merge(var.tags, {
-    Name = "remote-public-rt"
+    Name = "${var.addon_context.eks_cluster_id}-remote-public-rt"
   })
 }
 
@@ -96,7 +128,7 @@ module "key_pair" {
   key_name           = "hybrid-node"
   create_private_key = true
 
-  tags = var.tags
+  tags = local.tags
 }
 
 resource "local_file" "key_pem" {
@@ -166,7 +198,80 @@ module "hybrid_node" {
                 - echo "Verifying installations..."
                 - nodeadm --version
               EOF
-  tags = merge(var.tags, {
-    Name = "hybrid-node-01"
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-hybrid-node-01"
   })
+}
+
+################################################################################
+# Hybrid Networking
+################################################################################
+
+# Create Transit Gateway
+resource "aws_ec2_transit_gateway" "tgw" {
+  provider = aws.remote
+
+  description = "Transit Gateway for EKS Workshop Hybrid setup"
+  
+  default_route_table_association = "enable"
+  default_route_table_propagation = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-tgw"
+  })
+}
+
+# Create Transit Gateway VPC Attachment for remote VPC
+resource "aws_ec2_transit_gateway_vpc_attachment" "remote" {
+  provider = aws.remote
+
+  subnet_ids         = aws_subnet.remote_public[*].id
+  transit_gateway_id = aws_ec2_transit_gateway.tgw.id
+  vpc_id            = aws_vpc.remote.id
+  
+  dns_support = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-remote-tgw-attachment"
+  })
+}
+
+# Attach the main EKS VPC to TGW
+resource "aws_ec2_transit_gateway_vpc_attachment" "main" {
+  subnet_ids         = data.aws_subnets.private.ids # You might need to fetch these separately
+  transit_gateway_id = aws_ec2_transit_gateway.tgw.id
+  vpc_id            = data.aws_vpc.primary.id
+  
+  dns_support = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-main-tgw-attachment"
+  })
+}
+
+# Add route to remote VPC route table for Transit Gateway
+resource "aws_route" "remote_tgw" {
+  provider = aws.remote
+
+  route_table_id         = aws_route_table.remote_public.id
+  destination_cidr_block = var.remote_network_cidr 
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
+}
+
+# Add route in remote VPC route table to reach main VPC
+resource "aws_route" "remote_to_main" {
+  provider = aws.remote
+
+  route_table_id         = aws_route_table.remote_public.id
+  destination_cidr_block = data.aws_vpc.primary.cidr_block
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
+}
+
+# Add route in main VPC route tables to reach remote VPC
+resource "aws_route" "main_to_remote" {
+  count = length(data.aws_subnets.private.ids)
+
+  route_table_id         = data.aws_subnets.private.ids[count.index]
+  destination_cidr_block = var.remote_network_cidr
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
 }
