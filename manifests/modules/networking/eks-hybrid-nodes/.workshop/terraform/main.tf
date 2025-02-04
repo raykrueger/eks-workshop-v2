@@ -18,9 +18,15 @@ data "aws_vpc" "cluster" {
 }
 
 data "aws_subnets" "cluster_private" {
+  
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
+  }
+
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.cluster.id]
   }
 
   filter {
@@ -30,6 +36,11 @@ data "aws_subnets" "cluster_private" {
 }
 
 data "aws_subnets" "cluster_public" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.cluster.id]
+  }
+
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
@@ -41,8 +52,13 @@ data "aws_subnets" "cluster_public" {
   }
 }
 
-data "aws_route_table" "cluster_private" {
-  subnet_id = data.aws_subnets.cluster_private[0].id
+data "aws_route_tables" "cluster_private" {
+  vpc_id    = data.aws_vpc.cluster.id
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
 }
 
 ################################################################################
@@ -55,7 +71,7 @@ module "vpc" {
 
   name = "${local.name}-remote"
   cidr = local.remote_vpc_cidr
-  azs  = [local.azs
+  azs  = local.azs
 
   public_subnets =  [cidrsubnet(local.remote_vpc_cidr, 4, 0)]
   private_subnets = [cidrsubnet(local.remote_vpc_cidr, 4, 1)]     
@@ -78,7 +94,7 @@ module "tgw" {
   vpc_attachments = {
     remote_vpc = {
       vpc_id       = module.vpc.vpc_id
-      subnet_ids   = [ module.vpc.public_subnets[0].id ]
+      subnet_ids   = [ module.vpc.public_subnets[0] ]
       dns_support  = true
       ipv6_support = true
 
@@ -90,8 +106,8 @@ module "tgw" {
     }
 
     cluster_vpc = {
-      vpc_id       = data.aws_vpc.cluster.vpc_id
-      subnet_ids   = [ data.aws_subnets.cluster_public ]
+      vpc_id       = data.aws_vpc.cluster.id
+      subnet_ids   = data.aws_subnets.cluster_public.ids
       dns_support  = true
       ipv6_support = true
 
@@ -116,7 +132,9 @@ resource "aws_route" "remote_node_private" {
 }
 
 resource "aws_route" "to_remote_node" {
-  route_table_id            = data.aws_route_table.cluster_private[0]
+  count                     = length(data.aws_route_tables.cluster_private.ids)
+  route_table_id            = tolist(data.aws_route_tables.cluster_private.ids)[count.index]
+  
   destination_cidr_block    = local.remote_vpc_cidr
   transit_gateway_id        = module.tgw.ec2_transit_gateway_id
 }
@@ -149,25 +167,6 @@ resource "local_file" "key_pub_pem" {
   file_permission = "0600"
 }
 
-resource "local_file" "join" {
-  content  = <<-EOT
-    #!/usr/bin/env bash
-
-    # Use SCP/SSH to execute commands on the remote host
-    scp -i ${local_file.key_pem.filename} nodeConfig.yaml ubuntu@${aws_instance.hybrid_node["one"].public_ip}:/home/ubuntu/nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["one"].public_ip} sudo nodeadm init -c file://nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["one"].public_ip} sudo systemctl daemon-reload
-
-    scp -i ${local_file.key_pem.filename} nodeConfig.yaml ubuntu@${aws_instance.hybrid_node["two"].public_ip}:/home/ubuntu/nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["two"].public_ip} sudo nodeadm init -c file://nodeConfig.yaml
-    ssh -n -i ${local_file.key_pem.filename} ubuntu@${aws_instance.hybrid_node["two"].public_ip} sudo systemctl daemon-reload
-
-    # Clean up
-    rm nodeConfig.yaml
-  EOT
-  filename = "join.sh"
-}
-
 data "aws_ami" "ubuntu" {
   name_regex  = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server--*"
   most_recent = true
@@ -179,7 +178,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_security_group" "hybrid_nodes" {
   name        = "hybrid-nodes-sg"
   description = "Security group for hybrid EKS nodes"
-  vpc_id      = aws_vpc.remote.id
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port   = 22
@@ -254,10 +253,10 @@ resource "aws_instance" "hybrid_nodes" {
 module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
-  tags = local.tags
+  tags = var.tags
 }
 
-resource "aws_eks_access_entry" "karpenter" {
+resource "aws_eks_access_entry" "remote" {
   cluster_name    = var.eks_cluster_id
   principal_arn = module.eks_hybrid_node_role.arn
   type          = "HYBRID_LINUX"
