@@ -247,7 +247,7 @@ resource "aws_instance" "hybrid_nodes" {
   vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
   subnet_id              = module.vpc.public_subnets[0]
 
-  user_data = base64decode(local.user_data_script)
+  user_data = base64encode(local.user_data_script)
 
   tags = merge(
     var.tags,
