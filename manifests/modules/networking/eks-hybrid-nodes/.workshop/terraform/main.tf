@@ -6,6 +6,15 @@ locals {
   remote_vpc_cidr = "10.50.0.0/16"
   vpc_cidr = "10.42.0.0/16"
   instance_type = "m5.large"
+
+  user_data_script = <<EOF
+#!/bin/bash
+apt-get update -y
+curl "https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm" -o /usr/local/bin/nodeadm 
+chmod +x /usr/local/bin/nodeadm
+/usr/local/bin/nodeadm install "${var.eks_cluster_version}" --credential-provider "ssm"
+           
+EOF
 }
 
 data "aws_region" "current" {}
@@ -86,17 +95,17 @@ module "tgw" {
   source  = "terraform-aws-modules/transit-gateway/aws"
   version = "~> 2.0"
 
-  name        = "{$local.name}-hybrid-tgw"
+  name        = "${local.name}-hybrid-tgw"
   description = "TGW between cluster and remote vpc"
 
-  enable_auto_accept_shared_attachments = true
+  share_tgw   = false
 
   vpc_attachments = {
     remote_vpc = {
       vpc_id       = module.vpc.vpc_id
       subnet_ids   = [ module.vpc.public_subnets[0] ]
       dns_support  = true
-      ipv6_support = true
+      ipv6_support = false
 
       tgw_routes = [
         {
@@ -109,7 +118,7 @@ module "tgw" {
       vpc_id       = data.aws_vpc.cluster.id
       subnet_ids   = data.aws_subnets.cluster_public.ids
       dns_support  = true
-      ipv6_support = true
+      ipv6_support = false
 
       tgw_routes = [
         {
@@ -126,10 +135,13 @@ module "tgw" {
 
 
 resource "aws_route" "remote_node_private" {
-  route_table_id            = one(module.vpc.public_route_table_ids)
+  count                     = length(module.vpc.public_route_table_ids)
+  route_table_id            = tolist(module.vpc.public_route_table_ids)[count.index]
   destination_cidr_block    = local.vpc_cidr
   transit_gateway_id        = module.tgw.ec2_transit_gateway_id
 }
+
+
 
 resource "aws_route" "to_remote_node" {
   count                     = length(data.aws_route_tables.cluster_private.ids)
@@ -155,15 +167,15 @@ module "key_pair" {
   tags = var.tags
 }
 
-resource "local_file" "key_pem" {
+resource "local_sensitive_file" "key_pem" {
   content         = module.key_pair.private_key_pem
-  filename        = "key.pem"
+  filename        = "${path.module}/key.pem"
   file_permission = "0600"
 }
 
-resource "local_file" "key_pub_pem" {
+resource "local_sensitive_file" "key_pub_pem" {
   content         = module.key_pair.public_key_pem
-  filename        = "key_pub.pem"
+  filename        = "${path.module}/key_pub.pem"
   file_permission = "0600"
 }
 
@@ -235,14 +247,7 @@ resource "aws_instance" "hybrid_nodes" {
   vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
   subnet_id              = module.vpc.public_subnets[0]
 
-  user_data = <<-EOF
-              sudo apt-get update -y
-
-              curl "https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm" -o /usr/local/bin/nodeadm 
-              chmod +x /usr/local/bin/nodeadm
-              /usr/local/bin/nodeadm install "${var.eks_cluster_version}" --credential-provider "ssm"
-           
-              EOF
+  user_data = base64decode(local.user_data_script)
 
   tags = merge(
     var.tags,
@@ -260,4 +265,11 @@ resource "aws_eks_access_entry" "remote" {
   cluster_name    = var.eks_cluster_id
   principal_arn = module.eks_hybrid_node_role.arn
   type          = "HYBRID_LINUX"
+}
+
+resource "aws_route" "route_to_pod" {
+  count                     = length(module.vpc.public_route_table_ids)
+  route_table_id            = tolist(module.vpc.public_route_table_ids)[count.index]
+  destination_cidr_block    = cidrsubnet(local.remote_vpc_cidr, 4, 1)
+  network_interface_id      = aws_instance.hybrid_nodes.primary_network_interface_id
 }
