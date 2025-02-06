@@ -1,3 +1,8 @@
+locals {
+  remote_node_cidr = cidrsubnet(var.remote_network_cidr, 8, 1)
+  remote_pod_cidr  = cidrsubnet(var.remote_network_cidr, 8, 2)
+}
+
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
@@ -30,6 +35,38 @@ module "eks" {
 
   create_cluster_security_group = false
   create_node_security_group    = false
+  cluster_security_group_additional_rules = {
+    hybrid-all = {
+      cidr_blocks = [var.remote_network_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+  }
+
+  node_security_group_additional_rules = {
+    hybrid_node_rule = {
+      cidr_blocks = [var.remote_network_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+  }
+
+  
+  cluster_remote_network_config = {
+    remote_node_networks = {
+      cidrs = [local.remote_node_cidr]
+    }
+    # Required if running webhooks on Hybrid nodes
+    remote_pod_networks = {
+      cidrs = [local.remote_pod_cidr]
+    }
+  }
 
   eks_managed_node_groups = {
     default = {
@@ -52,38 +89,6 @@ module "eks" {
         workshop-default = "yes"
       }
     }
-  }
-
-  cluster_security_group_additional_rules = {
-    hybrid_node_rule =  {
-      cidr_blocks = [var.remote_network_cidr]
-      description = "Allow all traffic from remote node/pod network"
-      from_port   = 0
-      to_port     = 0
-      protocol    = "all"
-      type        = "ingress"
-    } 
-  }
-
-  node_security_group_additional_rules = {
-    hybrid_node_rule = {
-      cidr_blocks = [var.remote_network_cidr]
-      description = "Allow all traffic from remote node/pod network"
-      from_port   = 0
-      to_port     = 0
-      protocol    = "all"
-      type        = "ingress"
-    }
-  }
-
-  cluster_remote_network_config = {
-    remote_node_networks = {
-      cidrs = [cidrsubnet(var.remote_network_cidr, 4, 0)]
-    }
-        
-    remote_pod_networks = {
-      cidrs = [cidrsubnet(var.remote_network_cidr, 4, 1)]
-    } 
   }
 
   tags = merge(local.tags, {

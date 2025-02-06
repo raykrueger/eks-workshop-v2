@@ -23,7 +23,7 @@ variable "vpc_cidr" {
 }
 
 variable "remote_network_cidr" {
-  description = "CIDR for remote network where hybrid nodes can be deployed"
-  default     = "10.50.0.0/16"
+  description = "Defines the remote CIDR blocks used on Amazon VPC created for Amazon EKS Hybrid Nodes."
   type        = string
+  default     = "10.52.0.0/16"
 }

@@ -1,33 +1,29 @@
 data "aws_availability_zones" "available" {}
 
 locals {
-  name   = "${var.eks_cluster_id}-remote"
-  azs    = slice(data.aws_availability_zones.available.names, 0, 1)
-  remote_vpc_cidr = "10.50.0.0/16"
-  vpc_cidr = "10.42.0.0/16"
-  instance_type = "m5.large"
+  remote_node_cidr    = cidrsubnet(var.remote_network_cidr, 8, 0) #10.52.0.0/24
+  remote_pod_cidr     = cidrsubnet(var.remote_network_cidr, 8, 1) #10.52.1.0/24
 
-  user_data_script = <<EOF
-#!/bin/bash
-apt-get update -y
-curl "https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm" -o /usr/local/bin/nodeadm 
-chmod +x /usr/local/bin/nodeadm
-/usr/local/bin/nodeadm install "${var.eks_cluster_version}" --credential-provider "ssm"
-           
-EOF
+  remote_node_azs = slice(data.aws_availability_zones.available.names, 0, 3)
+
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+  name               = "${var.addon_context.eks_cluster_id}-remote"
 }
 
-data "aws_region" "current" {}
-
-data "aws_vpc" "cluster" {
+# Primary VPC created for the EKS Cluster
+data "aws_vpc" "primary" {
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
   }
 }
 
-data "aws_subnets" "cluster_private" {
-  
+# Look up "primary" vpc subnet
+data "aws_subnets" "private" {
   tags = {
     created-by = "eks-workshop-v2"
     env        = var.addon_context.eks_cluster_id
@@ -35,7 +31,7 @@ data "aws_subnets" "cluster_private" {
 
   filter {
     name   = "vpc-id"
-    values = [data.aws_vpc.cluster.id]
+    values = [data.aws_vpc.primary.id]
   }
 
   filter {
@@ -44,113 +40,68 @@ data "aws_subnets" "cluster_private" {
   }
 }
 
-data "aws_subnets" "cluster_public" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.cluster.id]
-  }
-
-  tags = {
-    created-by = "eks-workshop-v2"
-    env        = var.addon_context.eks_cluster_id
-  }
-
-  filter {
-    name   = "tag:Name"
-    values = ["*Public*"]
-  }
-}
-
-data "aws_route_tables" "cluster_private" {
-  vpc_id    = data.aws_vpc.cluster.id
-  tags = {
-    created-by = "eks-workshop-v2"
-    env        = var.addon_context.eks_cluster_id
-  }
-
-}
-
 ################################################################################
 # Remote VPC
 ################################################################################
 
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+# Create VPC in remote region
+resource "aws_vpc" "remote" {
 
-  name = "${local.name}-remote"
-  cidr = local.remote_vpc_cidr
-  azs  = local.azs
+  cidr_block           = var.remote_network_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
-  public_subnets =  [cidrsubnet(local.remote_vpc_cidr, 4, 0)]
-  private_subnets = [cidrsubnet(local.remote_vpc_cidr, 4, 1)]     
-
-  enable_nat_gateway = true
-  single_nat_gateway = true
-  
-  tags = var.tags
+  tags = merge(local.tags, {
+    Name = "${local.name}-vpc"
+  })
 }
 
-module "tgw" {
-  source  = "terraform-aws-modules/transit-gateway/aws"
-  version = "~> 2.0"
+# Create public subnets in remote VPC
+resource "aws_subnet" "remote_public" {
+  #count = 3
 
-  name        = "${local.name}-hybrid-tgw"
-  description = "TGW between cluster and remote vpc"
+  vpc_id            = aws_vpc.remote.id
+  
+  # This will split 10.52.1.0/24 into three /26 subnets (10.52.1.0/26, 10.52.1.64/26, 10.52.1.128/26)
+  cidr_block        = local.remote_node_cidr
+  availability_zone = local.remote_node_azs[0]
 
-  share_tgw   = false
+  map_public_ip_on_launch = true
 
-  vpc_attachments = {
-    remote_vpc = {
-      vpc_id       = module.vpc.vpc_id
-      subnet_ids   = [ module.vpc.public_subnets[0] ]
-      dns_support  = true
-      ipv6_support = false
+  tags = merge(var.tags, {
+    Name = "${local.name}-public"
+  })
+}
 
-      tgw_routes = [
-        {
-          destination_cidr_block = local.remote_vpc_cidr
-        }
-      ]
-    }
+# Internet Gateway for remote VPC
+resource "aws_internet_gateway" "remote" {
+  vpc_id = aws_vpc.remote.id
 
-    cluster_vpc = {
-      vpc_id       = data.aws_vpc.cluster.id
-      subnet_ids   = data.aws_subnets.cluster_public.ids
-      dns_support  = true
-      ipv6_support = false
+  tags = merge(var.tags, {
+    Name = "${local.name}-igw"
+  })
+}
 
-      tgw_routes = [
-        {
-          destination_cidr_block = local.vpc_cidr
-        }
-      ]
+# Route table for remote public subnets
+resource "aws_route_table" "remote_public" {
+  vpc_id = aws_vpc.remote.id
 
-    }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.remote.id
   }
 
-  tags = var.tags
+  tags = merge(var.tags, {
+    Name = "${local.name}-public-rt"
+  })
 }
 
-
-
-resource "aws_route" "remote_node_private" {
-  count                     = length(module.vpc.public_route_table_ids)
-  route_table_id            = tolist(module.vpc.public_route_table_ids)[count.index]
-  destination_cidr_block    = local.vpc_cidr
-  transit_gateway_id        = module.tgw.ec2_transit_gateway_id
-}
-
-
-
-resource "aws_route" "to_remote_node" {
-  count                     = length(data.aws_route_tables.cluster_private.ids)
-  route_table_id            = tolist(data.aws_route_tables.cluster_private.ids)[count.index]
+# Associate route table with public subnets
+resource "aws_route_table_association" "remote_public" {
   
-  destination_cidr_block    = local.remote_vpc_cidr
-  transit_gateway_id        = module.tgw.ec2_transit_gateway_id
+  subnet_id      = aws_subnet.remote_public.id
+  route_table_id = aws_route_table.remote_public.id
 }
-
 
 ################################################################################
 # Psuedo Hybrid Node
@@ -164,33 +115,20 @@ module "key_pair" {
   key_name           = "hybrid-node"
   create_private_key = true
 
-  tags = var.tags
+  tags = local.tags
 }
 
-resource "local_sensitive_file" "key_pem" {
+resource "local_file" "key_pem" {
   content         = module.key_pair.private_key_pem
-  filename        = "${path.module}/key.pem"
+  filename        = "${path.cwd}/environment/private-key.pem"
   file_permission = "0600"
-}
-
-resource "local_sensitive_file" "key_pub_pem" {
-  content         = module.key_pair.public_key_pem
-  filename        = "${path.module}/key_pub.pem"
-  file_permission = "0600"
-}
-
-data "aws_ami" "ubuntu" {
-  name_regex  = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server--*"
-  most_recent = true
-
-  owners = ["099720109477"] 
 }
 
 # Define the security group for the hybrid nodes
 resource "aws_security_group" "hybrid_nodes" {
   name        = "hybrid-nodes-sg"
   description = "Security group for hybrid EKS nodes"
-  vpc_id      = module.vpc.vpc_id
+  vpc_id      = aws_vpc.remote.id
 
   ingress {
     from_port   = 22
@@ -209,56 +147,166 @@ resource "aws_security_group" "hybrid_nodes" {
   tags = var.tags
 }
 
+#add rule to allow traffic from cluster vpc and current vpc
 resource "aws_vpc_security_group_ingress_rule" "from_cluster" {
-  cidr_ipv4                    = local.vpc_cidr
+  cidr_ipv4                    = data.aws_vpc.primary.cidr_block
   ip_protocol                  = "all"
   security_group_id            = aws_security_group.hybrid_nodes.id
-
 }
 
 resource "aws_vpc_security_group_ingress_rule" "remote_node" {
-  
-  cidr_ipv4                    = local.remote_vpc_cidr
+  cidr_ipv4                    = var.remote_network_cidr
   ip_protocol                  = "all"
   security_group_id            = aws_security_group.hybrid_nodes.id
-  
 }
 
-# Create the EC2 instances
-resource "aws_instance" "hybrid_nodes" {
+module "hybrid_node" {
+  source  = "terraform-aws-modules/ec2-instance/aws"
+  version = "~> 5.7.1"
 
-  ami                         = data.aws_ami.ubuntu.id
-  associate_public_ip_address = true
-  instance_type               = local.instance_type
+  ami_ssm_parameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+
+  instance_type = "m5.large"
+  subnet_id     = aws_subnet.remote_public.id
+  vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
   key_name      = module.key_pair.key_pair_name
 
-  # If not using user-data, block IMDS to make instance look less like EC2 and more like vanilla VM
-  metadata_options {
-    http_endpoint = "enabled"
-  }
-
-  root_block_device {
+  root_block_device = [{
     volume_size = 100
     volume_type = "gp3"
-  }
+    delete_on_termination = true
+  }]
 
   source_dest_check = false
 
-  vpc_security_group_ids = [aws_security_group.hybrid_nodes.id]
-  subnet_id              = module.vpc.public_subnets[0]
+  user_data = <<-EOF
+              #cloud-config
+              package_update: true
+              packages:
+                - unzip
 
-  user_data = base64encode(local.user_data_script)
+              runcmd:
+                - cd /tmp
+                - echo "Installing AWS CLI..."
+                - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                - unzip awscliv2.zip
+                - ./aws/install
+                - rm awscliv2.zip
+                - rm -rf aws/
+                - echo "Verifying AWS CLI installation..."
+                - aws --version
+                
+                - echo "Downloading nodeadm..."
+                - curl -OL 'https://hybrid-assets.eks.amazonaws.com/releases/latest/bin/linux/amd64/nodeadm'
+                - chmod +x nodeadm
+                
+                - echo "Moving nodeadm to /usr/local/bin"
+                - mv nodeadm /usr/local/bin/
 
-  tags = merge(
-    var.tags,
-    { Name = "hybrid-node-1" }
-  )
+                - echo "Verifying installations..."
+                - nodeadm --version
+              EOF
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-hybrid-node-01"
+  })
 }
+
+################################################################################
+# Hybrid Networking
+################################################################################
+
+# Create Transit Gateway
+resource "aws_ec2_transit_gateway" "tgw" {
+ 
+  description = "Transit Gateway for EKS Workshop Hybrid setup"
+  
+  default_route_table_association = "enable"
+  default_route_table_propagation = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-tgw"
+  })
+}
+
+# Create Transit Gateway VPC Attachment for remote VPC
+resource "aws_ec2_transit_gateway_vpc_attachment" "remote" {
+  #provider = aws.remote
+
+  subnet_ids         = [aws_subnet.remote_public.id]
+  transit_gateway_id = aws_ec2_transit_gateway.tgw.id
+  vpc_id            = aws_vpc.remote.id
+  
+  dns_support = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-remote-tgw-attachment"
+  })
+}
+
+data "aws_subnets" "cluster_public" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.primary.id]
+  }
+
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+  filter {
+    name   = "tag:Name"
+    values = ["*Public*"]
+  }
+}
+
+# Attach the main EKS VPC to TGW
+resource "aws_ec2_transit_gateway_vpc_attachment" "main" {
+  subnet_ids         = data.aws_subnets.cluster_public.ids
+  transit_gateway_id = aws_ec2_transit_gateway.tgw.id
+  vpc_id            = data.aws_vpc.primary.id
+  
+  dns_support = "enable"
+  
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-main-tgw-attachment"
+  })
+}
+
+# Add route in remote VPC route table to reach main VPC
+resource "aws_route" "remote_to_main" {
+  route_table_id         = aws_route_table.remote_public.id
+  destination_cidr_block = data.aws_vpc.primary.cidr_block
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
+}
+
+data "aws_route_tables" "cluster_vpc_routetable" {
+  vpc_id    = data.aws_vpc.primary.id
+  tags = {
+    created-by = "eks-workshop-v2"
+    env        = var.addon_context.eks_cluster_id
+  }
+
+}
+
+# Add route in main VPC route tables to reach remote VPC
+resource "aws_route" "main_to_remote" {
+  count                     = length(data.aws_route_tables.cluster_vpc_routetable.ids)
+  route_table_id            = tolist(data.aws_route_tables.cluster_vpc_routetable.ids)[count.index]
+  
+  destination_cidr_block    = var.remote_network_cidr
+  transit_gateway_id        = aws_ec2_transit_gateway.tgw.id
+}
+
+
+###### HYBRID ROLE #####
 
 module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
-  tags = var.tags
+  tags = merge(local.tags, {
+    Name = "${var.addon_context.eks_cluster_id}-hybrid-node-role"
+  })
 }
 
 resource "aws_eks_access_entry" "remote" {
@@ -267,9 +315,9 @@ resource "aws_eks_access_entry" "remote" {
   type          = "HYBRID_LINUX"
 }
 
-resource "aws_route" "route_to_pod" {
-  count                     = length(module.vpc.public_route_table_ids)
-  route_table_id            = tolist(module.vpc.public_route_table_ids)[count.index]
-  destination_cidr_block    = cidrsubnet(local.remote_vpc_cidr, 4, 1)
-  network_interface_id      = aws_instance.hybrid_nodes.primary_network_interface_id
-}
+#resource "aws_route" "route_to_pod" {
+#  route_table_id            = aws_route_table.remote_public.id
+#  destination_cidr_block    = local.remote_pod_cidr
+#  network_interface_id      = module.hybrid_node.primary_network_interface_id
+#}
+

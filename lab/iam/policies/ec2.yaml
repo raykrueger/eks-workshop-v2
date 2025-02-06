@@ -48,6 +48,18 @@ Statement:
       - ec2:DeleteNatGateway
       - ec2:CreateNetworkInterface
       - ec2:DeleteNetworkInterface
+      - ec2:DescribeNetworkInterfaces
+      - ec2:CreateTransitGateway
+      - ec2:DeleteTransitGateway
+      - ec2:CreateTransitGatewayVpcAttachment
+      - ec2:DeleteTransitGatewayVpcAttachment
+      - ec2:ModifyNetworkInterfaceAttribute
+      - ec2:CreateNetworkInterfacePermission
+      - ec2:AssignIpv6Addresses
+      - ec2:UnAssignIpv6Addresses
+      - ec2:ImportKeyPair
+      - ec2:CreateKeyPair
+      - ec2:DeleteKeyPair
     Resource: ["*"]
   - Effect: Allow
     Action:
