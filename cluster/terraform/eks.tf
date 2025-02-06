@@ -1,6 +1,6 @@
 locals {
-  remote_node_cidr = cidrsubnet(var.remote_network_cidr, 8, 1)
-  remote_pod_cidr  = cidrsubnet(var.remote_network_cidr, 8, 2)
+  remote_node_cidr = cidrsubnet(var.remote_network_cidr, 8, 0)
+  remote_pod_cidr  = cidrsubnet(var.remote_network_cidr, 8, 1)
 }
 
 module "eks" {
