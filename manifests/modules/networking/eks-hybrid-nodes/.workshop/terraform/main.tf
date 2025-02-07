@@ -132,6 +132,27 @@ resource "aws_security_group" "hybrid_nodes" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = 10250
+    to_port     = 10250
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.primary.cidr_block]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.primary.cidr_block]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [local.remote_pod_cidr]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -139,21 +160,6 @@ resource "aws_security_group" "hybrid_nodes" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = var.tags
-}
-
-#add rule to allow traffic from cluster vpc and current vpc
-resource "aws_vpc_security_group_ingress_rule" "from_cluster" {
-  cidr_ipv4                    = data.aws_vpc.primary.cidr_block
-  ip_protocol                  = "all"
-  security_group_id            = aws_security_group.hybrid_nodes.id
-  tags = var.tags
-}
-
-resource "aws_vpc_security_group_ingress_rule" "remote_node" {
-  cidr_ipv4                    = var.remote_network_cidr
-  ip_protocol                  = "all"
-  security_group_id            = aws_security_group.hybrid_nodes.id
   tags = var.tags
 }
 
@@ -216,6 +222,8 @@ module "hybrid_node" {
 resource "aws_ec2_transit_gateway" "tgw" {
  
   description = "Transit Gateway for EKS Workshop Hybrid setup"
+
+  auto_accept_shared_attachments = true
   
   default_route_table_association = "enable"
   default_route_table_propagation = "enable"
@@ -302,7 +310,7 @@ module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
   tags = merge(var.tags, {
-    Name = "${var.addon_context.eks_cluster_id}-hybrid-node-role"
+    Name = "${var.eks_cluster_id}-hybrid-node-role"
   })
 }
 
