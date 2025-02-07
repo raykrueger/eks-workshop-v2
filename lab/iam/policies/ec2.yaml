@@ -15,13 +15,17 @@ Statement:
       - ec2:TerminateInstances
     Resource: ["*"]
     Condition:
+      StringLike:
+        aws:ResourceTag/env:
+          - ${Env}*
   - Effect: Allow
     Action:
       - ec2:ModifyInstanceAttribute
     Resource: ["*"]
     Condition:
       StringEquals:
-        ec2:Attribute: "sourceDestCheck"
+        ec2:Attribute:
+        - sourceDestCheck
   - Effect: Deny
     Action: ec2:RunInstances
     Resource:
