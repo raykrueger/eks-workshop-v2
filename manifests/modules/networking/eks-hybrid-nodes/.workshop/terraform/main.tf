@@ -309,9 +309,8 @@ resource "aws_route" "main_to_remote" {
 module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
-  tags = merge(var.tags, {
-    Name = "${var.eks_cluster_id}-hybrid-node-role"
-  })
+  name = "${var.eks_cluster_id}-hybrid-node-role"
+  tags = var.tags
 }
 
 resource "aws_eks_access_entry" "remote" {
