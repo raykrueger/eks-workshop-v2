@@ -8,20 +8,13 @@ Statement:
       - ec2:RunInstances
       - ec2:ImportKeyPair
       - ec2:DeleteKeyPair
+      - ec2:ModifyInstanceAttribute
     Resource: ["*"]
   - Effect: Allow
     Action:
       - ec2:StopInstances
       - ec2:TerminateInstances
     Resource: ["*"]
-    Condition:
-  - Effect: Allow
-    Action:
-      - ec2:ModifyInstanceAttribute
-    Resource: ["*"]
-    Condition:
-      StringEquals:
-        ec2:Attribute: "sourceDestCheck"
   - Effect: Deny
     Action: ec2:RunInstances
     Resource:
