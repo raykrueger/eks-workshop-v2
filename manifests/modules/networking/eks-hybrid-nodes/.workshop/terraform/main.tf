@@ -1,15 +1,10 @@
 data "aws_availability_zones" "available" {}
 
 locals {
-  remote_node_cidr    = cidrsubnet(var.remote_network_cidr, 8, 0) #10.52.0.0/24
-  remote_pod_cidr     = cidrsubnet(var.remote_network_cidr, 8, 1) #10.52.1.0/24
+  remote_node_cidr    = cidrsubnet(var.remote_network_cidr, 8, 0)
+  remote_pod_cidr     = "172.16.0.0/16"
 
   remote_node_azs = slice(data.aws_availability_zones.available.names, 0, 3)
-
-  tags = {
-    created-by = "eks-workshop-v2"
-    env        = var.addon_context.eks_cluster_id
-  }
 
   name               = "${var.addon_context.eks_cluster_id}-remote"
 }
@@ -51,7 +46,7 @@ resource "aws_vpc" "remote" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${local.name}-vpc"
   })
 }
@@ -115,7 +110,7 @@ module "key_pair" {
   key_name           = "hybrid-node"
   create_private_key = true
 
-  tags = local.tags
+  tags = var.tags
 }
 
 resource "local_file" "key_pem" {
@@ -152,12 +147,14 @@ resource "aws_vpc_security_group_ingress_rule" "from_cluster" {
   cidr_ipv4                    = data.aws_vpc.primary.cidr_block
   ip_protocol                  = "all"
   security_group_id            = aws_security_group.hybrid_nodes.id
+  tags = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "remote_node" {
   cidr_ipv4                    = var.remote_network_cidr
   ip_protocol                  = "all"
   security_group_id            = aws_security_group.hybrid_nodes.id
+  tags = var.tags
 }
 
 module "hybrid_node" {
@@ -206,7 +203,7 @@ module "hybrid_node" {
                 - echo "Verifying installations..."
                 - nodeadm --version
               EOF
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${var.addon_context.eks_cluster_id}-hybrid-node-01"
   })
 }
@@ -223,7 +220,7 @@ resource "aws_ec2_transit_gateway" "tgw" {
   default_route_table_association = "enable"
   default_route_table_propagation = "enable"
   
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${var.addon_context.eks_cluster_id}-tgw"
   })
 }
@@ -238,7 +235,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "remote" {
   
   dns_support = "enable"
   
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${var.addon_context.eks_cluster_id}-remote-tgw-attachment"
   })
 }
@@ -268,7 +265,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "main" {
   
   dns_support = "enable"
   
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${var.addon_context.eks_cluster_id}-main-tgw-attachment"
   })
 }
@@ -304,7 +301,7 @@ resource "aws_route" "main_to_remote" {
 module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "${var.addon_context.eks_cluster_id}-hybrid-node-role"
   })
 }
@@ -313,6 +310,7 @@ resource "aws_eks_access_entry" "remote" {
   cluster_name    = var.eks_cluster_id
   principal_arn = module.eks_hybrid_node_role.arn
   type          = "HYBRID_LINUX"
+  tags = var.tags
 }
 
 #resource "aws_route" "route_to_pod" {
