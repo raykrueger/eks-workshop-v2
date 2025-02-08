@@ -164,6 +164,7 @@ resource "aws_security_group" "hybrid_nodes" {
 }
 
 module "hybrid_node" {
+  depends_on = [aws_ec2_transit_gateway.tgw, aws_internet_gateway.remote]
   source  = "terraform-aws-modules/ec2-instance/aws"
   version = "~> 5.7.1"
 
@@ -223,6 +224,8 @@ resource "aws_ec2_transit_gateway" "tgw" {
  
   description = "Transit Gateway for EKS Workshop Hybrid setup"
 
+  auto_accept_shared_attachments = "enable"
+  
   default_route_table_association = "enable"
   default_route_table_propagation = "enable"
   
@@ -307,9 +310,8 @@ resource "aws_route" "main_to_remote" {
 module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
-
-  name        = "${var.eks_cluster_id}-hybrid-node-role"
-  policy_name = "${var.eks_cluster_id}-hybrid-policy"
+  name = "${var.eks_cluster_id}-hybrid-node-role"
+  policy_name = "${var.eks_cluster_id}-hybrid-node-policy"
   tags = var.tags
 }
 

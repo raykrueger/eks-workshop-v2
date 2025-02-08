@@ -8,13 +8,17 @@ Statement:
       - ec2:RunInstances
       - ec2:ImportKeyPair
       - ec2:DeleteKeyPair
-      - ec2:ModifyInstanceAttribute
     Resource: ["*"]
   - Effect: Allow
     Action:
       - ec2:StopInstances
       - ec2:TerminateInstances
+      - ec2:ModifyInstanceAttribute
     Resource: ["*"]
+    Condition:
+      StringLike:
+        aws:ResourceTag/env:
+          - ${Env}*
   - Effect: Deny
     Action: ec2:RunInstances
     Resource:
