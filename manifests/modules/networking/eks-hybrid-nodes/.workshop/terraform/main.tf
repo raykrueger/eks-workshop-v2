@@ -310,6 +310,7 @@ module "eks_hybrid_node_role" {
   source  = "terraform-aws-modules/eks/aws//modules/hybrid-node-role"
   version = "~> 20.31"
   name = "${var.eks_cluster_id}-hybrid-node-role"
+  policy_name = "${var.eks_cluster_id}-hybrid-node-policy"
   tags = var.tags
 }
 
