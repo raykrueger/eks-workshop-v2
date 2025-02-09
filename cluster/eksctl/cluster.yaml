@@ -21,9 +21,9 @@ vpc:
     publicAccess: true
 remoteNetworkConfig:
   remoteNodeNetworks:
-    - cidrs: ["10.52.0.0/24"]
+    - cidrs: ["10.52.0.0/16"]
   remotePodNetworks:
-    - cidrs: ["10.52.1.0/24"]
+    - cidrs: ["172.16.0.0/16"]
 addons:
   - name: vpc-cni
     version: 1.19.2
