@@ -1,6 +1,6 @@
 locals {
-  remote_node_cidr = cidrsubnet(var.remote_network_cidr, 8, 0)
-  remote_pod_cidr  = cidrsubnet(var.remote_network_cidr, 8, 1)
+  remote_node_cidr = var.remote_network_cidr
+  remote_pod_cidr  = var.remote_pod_cidr
 }
 
 module "eks" {
@@ -36,8 +36,17 @@ module "eks" {
   create_cluster_security_group = false
   create_node_security_group    = false
   cluster_security_group_additional_rules = {
-    hybrid-all = {
-      cidr_blocks = [var.remote_network_cidr]
+    hybrid-node = {
+      cidr_blocks = [local.remote_node_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+
+    hybrid-pod = {
+      cidr_blocks = [local.remote_pod_cidr]
       description = "Allow all traffic from remote node/pod network"
       from_port   = 0
       to_port     = 0
@@ -48,7 +57,16 @@ module "eks" {
 
   node_security_group_additional_rules = {
     hybrid_node_rule = {
-      cidr_blocks = [var.remote_network_cidr]
+      cidr_blocks = [local.remote_node_cidr]
+      description = "Allow all traffic from remote node/pod network"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "all"
+      type        = "ingress"
+    }
+
+    hybrid_pod_rule = {
+      cidr_blocks = [local.remote_pod_cidr]
       description = "Allow all traffic from remote node/pod network"
       from_port   = 0
       to_port     = 0

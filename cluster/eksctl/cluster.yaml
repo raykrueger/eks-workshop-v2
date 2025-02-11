@@ -23,7 +23,7 @@ remoteNetworkConfig:
   remoteNodeNetworks:
     - cidrs: ["10.52.0.0/16"]
   remotePodNetworks:
-    - cidrs: ["172.16.0.0/16"]
+    - cidrs: ["10.53.0.0/16"]
 addons:
   - name: vpc-cni
     version: 1.19.2
