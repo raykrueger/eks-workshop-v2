@@ -11,7 +11,7 @@ if [ ! -z "$ASSUME_ROLE" ]; then
   target_role=$ASSUME_ROLE
 fi
 
-ACCESS_VARS=$(aws sts assume-role --role-arn ${target_role} --role-session-name ${EKS_CLUSTER_NAME}-shell-${session_suffix} --output json | jq -r '.Credentials | "export AWS_ACCESS_KEY_ID=\(.AccessKeyId) AWS_SECRET_ACCESS_KEY=\(.SecretAccessKey) AWS_SESSION_TOKEN=\(.SessionToken)"')
+ACCESS_VARS=$(aws sts assume-role --role-arn ${target_role} --role-session-name ${EKS_CLUSTER_NAME}-shell-${session_suffix} --duration-seconds 28800 --output json | jq -r '.Credentials | "export AWS_ACCESS_KEY_ID=\(.AccessKeyId) AWS_SECRET_ACCESS_KEY=\(.SecretAccessKey) AWS_SESSION_TOKEN=\(.SessionToken)"')
 
 # TODO: This should probably not use eval
 eval "$ACCESS_VARS"
