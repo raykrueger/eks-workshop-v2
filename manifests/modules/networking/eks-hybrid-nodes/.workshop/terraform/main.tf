@@ -306,14 +306,14 @@ resource "aws_route" "main_to_pod" {
 }
 
 # Add static route in tgw route table to reach pod cidr
-resource "aws_ec2_transit_gateway_route" "example" {
+resource "aws_ec2_transit_gateway_route" "tgw_route_to_pod" {
   destination_cidr_block         = local.remote_pod_cidr
   transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.remote.id
   transit_gateway_route_table_id = aws_ec2_transit_gateway.tgw.association_default_route_table_id
 }
 
 # Add static route in remote route table to direct all pod traffic to node eni
-resource "aws_route" "route_to_pod" {
+resource "aws_route" "remote_route_to_pod" {
   route_table_id            = aws_route_table.remote_public.id
   destination_cidr_block    = local.remote_pod_cidr
   network_interface_id      = module.hybrid_node.primary_network_interface_id
