@@ -12,10 +12,13 @@ ipam:
   operator:
     clusterPoolIPv4MaskSize: 25
     clusterPoolIPv4PodCIDRList:
-    - 172.16.0.0/16
+    - 10.53.0.0/16
 operator:
   replicas: 1
   unmanagedPodWatcher:
     restart: false
 bgpControlPlane:
-  enabled: true
+  enabled: false
+routingMode: native
+ipv4NativeRoutingCIDR: 10.0.0.0/8
+enableIPv4Masquerade: true

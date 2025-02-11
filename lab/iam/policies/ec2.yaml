@@ -54,6 +54,9 @@ Statement:
       - ec2:DeleteTransitGateway
       - ec2:CreateTransitGatewayVpcAttachment
       - ec2:DeleteTransitGatewayVpcAttachment
+      - ec2:CreateTransitGatewayRoute
+      - ec2:SearchTransitGatewayRoutes
+      - ec2:DeleteTransitGatewayRoute
       - ec2:ModifyNetworkInterfaceAttribute
       - ec2:CreateNetworkInterfacePermission
       - ec2:AssignIpv6Addresses
@@ -89,10 +92,6 @@ Statement:
       - ec2:AuthorizeSecurityGroup*
       - ec2:RevokeSecurityGroup*
     Resource: ["*"]
-    Condition:
-      StringLike:
-        aws:ResourceTag/aws:eks:cluster-name:
-          - ${Env}*
   - Effect: Allow
     Action:
       - ec2:CreateTags

@@ -2,7 +2,7 @@ data "aws_availability_zones" "available" {}
 
 locals {
   remote_node_cidr    = cidrsubnet(var.remote_network_cidr, 8, 0)
-  remote_pod_cidr     = "172.16.0.0/16"
+  remote_pod_cidr     = "10.53.0.0/16"
 
   remote_node_azs = slice(data.aws_availability_zones.available.names, 0, 3)
 
@@ -57,7 +57,6 @@ resource "aws_subnet" "remote_public" {
 
   vpc_id            = aws_vpc.remote.id
   
-  # This will split 10.52.1.0/24 into three /26 subnets (10.52.1.0/26, 10.52.1.64/26, 10.52.1.128/26)
   cidr_block        = local.remote_node_cidr
   availability_zone = local.remote_node_azs[0]
 
@@ -133,16 +132,9 @@ resource "aws_security_group" "hybrid_nodes" {
   }
 
   ingress {
-    from_port   = 10250
-    to_port     = 10250
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.primary.cidr_block]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = [data.aws_vpc.primary.cidr_block]
   }
 
@@ -304,6 +296,28 @@ resource "aws_route" "main_to_remote" {
   transit_gateway_id        = aws_ec2_transit_gateway.tgw.id
 }
 
+# Add route in main VPC route tables to reach pod cidr
+resource "aws_route" "main_to_pod" {
+  count                     = length(data.aws_route_tables.cluster_vpc_routetable.ids)
+  route_table_id            = tolist(data.aws_route_tables.cluster_vpc_routetable.ids)[count.index]
+  
+  destination_cidr_block    = local.remote_pod_cidr
+  transit_gateway_id        = aws_ec2_transit_gateway.tgw.id
+}
+
+# Add static route in tgw route table to reach pod cidr
+resource "aws_ec2_transit_gateway_route" "example" {
+  destination_cidr_block         = local.remote_pod_cidr
+  transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.remote.id
+  transit_gateway_route_table_id = aws_ec2_transit_gateway.tgw.association_default_route_table_id
+}
+
+# Add static route in remote route table to direct all pod traffic to node eni
+resource "aws_route" "route_to_pod" {
+  route_table_id            = aws_route_table.remote_public.id
+  destination_cidr_block    = local.remote_pod_cidr
+  network_interface_id      = module.hybrid_node.primary_network_interface_id
+}
 
 ###### HYBRID ROLE #####
 
@@ -322,9 +336,20 @@ resource "aws_eks_access_entry" "remote" {
   tags = var.tags
 }
 
-#resource "aws_route" "route_to_pod" {
-#  route_table_id            = aws_route_table.remote_public.id
-#  destination_cidr_block    = local.remote_pod_cidr
-#  network_interface_id      = module.hybrid_node.primary_network_interface_id
-#}
+##### ADD PROPER SECURITY GROUP RULE TO ALLOW REMOTE PODS ACCESSINGS EKS NODES AND PDOS ####
+data "aws_eks_cluster" "cluster" {
+  name = var.eks_cluster_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "node_from_remote_node" {
+  cidr_ipv4              = local.remote_node_cidr
+  ip_protocol            = "all"
+  security_group_id      = data.aws_eks_cluster.cluster.vpc_config[0].cluster_security_group_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "node_from_remote_pod" {
+  cidr_ipv4              = local.remote_pod_cidr
+  ip_protocol            = "all"
+  security_group_id      = data.aws_eks_cluster.cluster.vpc_config[0].cluster_security_group_id
+}
 
