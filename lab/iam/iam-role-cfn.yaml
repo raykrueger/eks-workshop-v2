@@ -5,7 +5,6 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: ${Env}-ide-role
-      MaxSessionDuration: 28800 #8 hours
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
