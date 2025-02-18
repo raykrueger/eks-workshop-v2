@@ -17,7 +17,8 @@ $ aws ssm create-activation \
 With our activation created, we can now create a `nodeconfig.yaml` which will be reference when we join our instance to the cluster. This utilizes the SSM Activation created in the previous step as well as the cluster name and region.
 
 ```bash
-$ echo "apiVersion: node.eks.aws/v1alpha1
+$ cat <<EOF > nodeconfig.yaml
+apiVersion: node.eks.aws/v1alpha1
 kind: NodeConfig
 spec:
   cluster:
@@ -26,7 +27,16 @@ spec:
   hybrid:
     ssm:
       activationCode: $(jq -r .ActivationCode ssm-activation.json)
-      activationId: $(jq -r .ActivationId ssm-activation.json)" > nodeconfig.yaml
+      activationId: $(jq -r .ActivationId ssm-activation.json)
+EOF
+```
+
+Let's copy that nodeconfig.yaml file over to our hybrid node instance.
+
+```bash
+$ mkdir -p ~/.ssh/
+$ ssh-keyscan -H $HYBRID_NODE_IP &> ~/.ssh/known_hosts
+$ scp -i private-key.pem nodeconfig.yaml ubuntu@$HYBRID_NODE_IP:/home/ubuntu/nodeconfig.yaml
 ```
 
 Next, let's install the hybrid nodes dependencies using `nodeadm` on our EC2 instance. The hybrid nodes dependencies include containerd, kubelet, kubectl, and AWS SSM or AWS IAM Roles Anywhere components. See Hybrid nodes [nodeadm reference](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-nodeadm.html) for more information on the components and file locations installed by nodeadm install.
@@ -35,10 +45,9 @@ Next, let's install the hybrid nodes dependencies using `nodeadm` on our EC2 ins
 $ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP "sudo nodeadm install $EKS_CLUSTER_VERSION --credential-provider ssm"
 ```
 
-With our dependencies installed, we can now transfer our `nodeconfig.yaml` to the cluster and initialize the instance as a hybrid node.
+With our dependencies installed, and our `nodeconfig.yaml` in place, we initialize the instance as a hybrid node.
 
 ```bash
-$ scp -i private-key.pem nodeconfig.yaml ubuntu@$HYBRID_NODE_IP:/home/ubuntu/nodeconfig.yaml
 $ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP "sudo nodeadm init -c file://nodeconfig.yaml"
 ```
 
@@ -69,5 +78,16 @@ $ helm install cilium cilium/cilium \
 ```
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/cilium-values.yaml"}
+
+After installing Cilium our Hybrid Node should up, happy and healthy.
+
+```bash
+$ kubectl get nodes
+NAME                                          STATUS     ROLES    AGE    VERSION
+ip-10-42-118-191.us-west-2.compute.internal   Ready      <none>   1h   v1.31.3-eks-59bf375
+ip-10-42-154-9.us-west-2.compute.internal     Ready      <none>   1h   v1.31.3-eks-59bf375
+ip-10-42-163-120.us-west-2.compute.internal   Ready      <none>   1h   v1.31.3-eks-59bf375
+mi-015a9aae5526e2192                          Ready      <none>   5m   v1.31.4-eks-aeac579
+```
 
 That's it! You now have a hybrid node up and running in your cluster.
