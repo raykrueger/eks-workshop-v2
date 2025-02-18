@@ -6,8 +6,6 @@ logmessage "Cleaning up EKS Hybrid Nodes Module"
 
 kubectl delete deployment nginx-deployment || true
 
-helm uninstall cilium --ignore-not-found || true
-
-helm repo remove cilium || true
+uninstall-helm-chart kube-system cilium
 
 kubectl delete nodes -l eks.amazonaws.com/compute-type=hybrid || true
