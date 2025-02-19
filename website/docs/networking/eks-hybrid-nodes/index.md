@@ -8,7 +8,7 @@ sidebar_custom_props: { "module": true }
 This module is currently in preview, please [report any issues](https://github.com/aws-samples/eks-workshop-v2/issues) encountered.
 :::
 
-:::required-time
+::required-time
 
 Amazon EKS Hybrid Nodes unifies management of Kubernetes across cloud, on-premises and edge environments, giving you the flexibility to run your workloads anywhere, while driving higher availability, scalability, and efficiency. It standardizes Kubernetes operations and tooling across environments and natively integrates with AWS services for centralized monitoring, logging, and identity management. EKS Hybrid Nodes reduces the time and effort required for managing Kubernetes on premises and at the edge by offloading the availability and scalability of the Kubernetes control plane to AWS. EKS Hybrid Nodes can run on your existing infrastructure to accelerate modernization without additional hardware investment.
 
@@ -28,6 +28,6 @@ $ prepare-environment networking/hybrid-nodes
 ```
 :::
 
-The architecture diagram below is a high-level example of what we are building.
+The architecture diagram below is a high-level example of what we are building. 
 
 ![Architecture Diagram](./assets/lab_environment.png)
