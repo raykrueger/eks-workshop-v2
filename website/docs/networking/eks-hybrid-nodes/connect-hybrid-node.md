@@ -72,7 +72,7 @@ With the repo added, we can install Cilium using the configuration provided belo
 
 ```bash
 $ helm install cilium cilium/cilium \
---version 1.17.0 \
+--version 1.17.1 \
 --namespace kube-system \
 --values ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/cilium-values.yaml
 ```
