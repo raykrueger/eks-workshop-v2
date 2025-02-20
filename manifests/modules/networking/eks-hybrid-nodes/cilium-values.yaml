@@ -26,7 +26,5 @@ operator:
               - hybrid
   unmanagedPodWatcher:
     restart: false
-routingMode: native
-ipv4NativeRoutingCIDR: 10.0.0.0/8
 envoy:
   enabled: false
