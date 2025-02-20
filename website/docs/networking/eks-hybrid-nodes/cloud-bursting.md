@@ -1,5 +1,5 @@
 ---
-title: "Deploy Sample Workload"
+title: "Cloud Bursting Example"
 sidebar_position: 20
 sidebar_custom_props: { "module": false }
 ---
