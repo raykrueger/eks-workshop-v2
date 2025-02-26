@@ -229,10 +229,9 @@ resource "aws_ec2_transit_gateway" "tgw" {
 # Create Transit Gateway VPC Attachment for remote VPC
 resource "aws_ec2_transit_gateway_vpc_attachment" "remote" {
   #provider = aws.remote
-
   subnet_ids         = [aws_subnet.remote_public.id]
   transit_gateway_id = aws_ec2_transit_gateway.tgw.id
-  vpc_id            = aws_vpc.remote.id
+  vpc_id             = aws_vpc.remote.id
   
   dns_support = "enable"
   
@@ -273,6 +272,8 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "main" {
 
 # Add route in remote VPC route table to reach main VPC
 resource "aws_route" "remote_to_main" {
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.remote ]
+  
   route_table_id         = aws_route_table.remote_public.id
   destination_cidr_block = data.aws_vpc.primary.cidr_block
   transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
@@ -289,6 +290,8 @@ data "aws_route_tables" "cluster_vpc_routetable" {
 
 # Add route in main VPC route tables to reach remote VPC
 resource "aws_route" "main_to_remote" {
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.main ]
+  
   count                     = length(data.aws_route_tables.cluster_vpc_routetable.ids)
   route_table_id            = tolist(data.aws_route_tables.cluster_vpc_routetable.ids)[count.index]
   
@@ -298,6 +301,8 @@ resource "aws_route" "main_to_remote" {
 
 # Add route in main VPC route tables to reach pod cidr
 resource "aws_route" "main_to_pod" {
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.main ]
+  
   count                     = length(data.aws_route_tables.cluster_vpc_routetable.ids)
   route_table_id            = tolist(data.aws_route_tables.cluster_vpc_routetable.ids)[count.index]
   
