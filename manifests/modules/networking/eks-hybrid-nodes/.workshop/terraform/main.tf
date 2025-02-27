@@ -81,7 +81,7 @@ resource "aws_route_table" "remote_public" {
   vpc_id = aws_vpc.remote.id
 
   route {
-    cidr_block = var.ssh_access_cidr
+    cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.remote.id
   }
 
@@ -216,6 +216,8 @@ resource "aws_ec2_transit_gateway" "tgw" {
  
   description = "Transit Gateway for EKS Workshop Hybrid setup"
 
+  auto_accept_shared_attachments = "enable"
+  
   default_route_table_association = "enable"
   default_route_table_propagation = "enable"
   

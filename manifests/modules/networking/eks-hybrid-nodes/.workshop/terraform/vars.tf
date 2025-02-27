@@ -39,9 +39,3 @@ variable "remote_network_cidr" {
   type        = string
   default     = "10.52.0.0/16"
 }
-
-variable "ssh_access_cidr" {
-  description = "Defines the public IP CIDR that can access ssh on our hybrid node"
-  type        = string
-  default     = "0.0.0.0/0"
-}
