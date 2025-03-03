@@ -35,6 +35,10 @@ data "aws_subnets" "private" {
   }
 }
 
+data "http" "public_ip" {
+  url = "https://checkip.amazonaws.com/"
+}
+
 ################################################################################
 # Remote VPC
 ################################################################################
@@ -128,7 +132,7 @@ resource "aws_security_group" "hybrid_nodes" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["${trimspace(data.http.public_ip.response_body)}/32"]
   }
 
   ingress {
