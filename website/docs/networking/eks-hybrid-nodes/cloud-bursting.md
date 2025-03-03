@@ -1,5 +1,5 @@
 ---
-title: "Cloud Bursting Example"
+title: "Cloud Bursting"
 sidebar_position: 20
 sidebar_custom_props: { "module": false }
 ---
@@ -131,7 +131,7 @@ nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubern
 
 Scale up and burst into cloud. The nginx deployment here is requesting an
 ureasonable amount of CPU (200m) for demonstration purposes. This means we can
-fit about 8 instances on our hybrid node. When we scale up to 15 instances of
+fit about 8 replicas on our hybrid node. When we scale up to 15 replicas of
 the pod, there is no room to schedule them. Given that we are using the
 `preferredDuringSchedulingIgnoredDuringExecution` affinity policy, this means
 that we start with our hybrid node. Anything that is unschedulable is allowed to
