@@ -79,7 +79,7 @@ $ helm install cilium cilium/cilium \
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/cilium-values.yaml"}
 
-After installing Cilium our Hybrid Node should up, happy and healthy.
+After installing Cilium our Hybrid Node should be up, happy and healthy.
 
 ```bash
 $ kubectl get nodes

@@ -177,9 +177,14 @@ Let's scale our sample deployment back down to 3 again. We'll be left with three
 
 ```bash
 $ kubectl scale deployment nginx-deployment --replicas 3
-$ kubectl get pods -o wide --watch
-...
-nginx-deployment-7d7f668b68-5jz2b   1/1     Running             0          2s    10.53.0.97      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-kslfq   1/1     Running             0          3s    10.53.0.110     mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-qsqzx   1/1     Running             0          3s    10.53.0.111     mi-0026d09f0152f3e60                          <none>           <none>
+```
+
+Finally, just to be sure, let's make sure we're back down to 3 replicas running on our hybrid node.
+
+```bash
+$ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
+NAME                                NODE                   ANNOTATIONS
+nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-fjswp   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
 ```
