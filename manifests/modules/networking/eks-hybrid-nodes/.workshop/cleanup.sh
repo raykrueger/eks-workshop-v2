@@ -4,6 +4,10 @@ set -e
 
 logmessage "Cleaning up EKS Hybrid Nodes Module"
 
+kubectl delete namespace ui
+
+kubectl delete namespace catalog
+
 kubectl delete deployment nginx-deployment --ignore-not-found=true
 
 uninstall-helm-chart kube-system cilium

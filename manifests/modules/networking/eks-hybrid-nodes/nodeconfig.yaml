@@ -1,0 +1,10 @@
+apiVersion: node.eks.aws/v1alpha1
+kind: NodeConfig
+spec:
+  cluster:
+    name: eks-workshop
+    region: us-east-2
+  hybrid:
+    ssm:
+      activationCode: QsAEQ4oKDXuEHQbIs4DF
+      activationId: 72d72a25-e847-4094-9012-7f09aef310ad
