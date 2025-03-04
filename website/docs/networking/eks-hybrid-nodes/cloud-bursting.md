@@ -1,5 +1,5 @@
 ---
-title: "Cloud Bursting Example"
+title: "Cloud Bursting"
 sidebar_position: 20
 sidebar_custom_props: { "module": false }
 ---
@@ -12,14 +12,103 @@ with the `eks.amazonaws.com/compute-type=hybrid` label and value.
 
 The `preferredDuringSchedulingIgnoredDuringExecution` strategy tells Kubernetes
 to *prefer* our Hybrid Node when scheduling but *ignore* that during execution.
-What that means is that when there is no more room on our single hybrid node,
-these pods are free to schedule elsewhere in the cluster. Which is great! That
-gives us our cloud bursting we wanted. However, the *IgnoredDuringExecution*
-part means that when we scale back down, Kubernetes will randomly remove pods
-and not worry about where they are running, because that is *ignored during
-execution*.
+This means that when there is no more room on our single hybrid node, these pods
+are free to schedule elsewhere in the cluster, meaning our EC2 instances. Which
+is great! That gives us our cloud bursting we wanted. However, the
+*IgnoredDuringExecution* part means that when we scale back down, Kubernetes
+will randomly remove pods and not worry about where they are running, because
+that is *ignored during execution*. Generally speaking, Kubernetes will remove
+older pods first, which would be the pods running on our Hybrid Nodes. We don't
+want that!
 
-Let's deploy our workload and come back to that problem.
+We're going to deploy [Kyverno](https://kyverno.io/), which is a policy engine
+for Kubernetes. Kyverno will be setup with a policy that watches for Pods that
+get scheduled to our hybrid node, and will add an Annotation to that running
+pod. The
+[controller.kubernetes.io/pod-deletion-cost](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/#pod-deletion-cost)
+Annotation effectlively tells Kubernetes to delete less *expensive* pods first.
+
+Let's get to work. We'll use Helm to install Kyverno and we'll deploy the policy included below.
+
+```bash
+$ helm repo add kyverno https://kyverno.github.io/kyverno/
+$ helm install kyverno kyverno/kyverno --version 3.3.7 -n kyverno --create-namespace -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kyverno/values.yaml
+
+```
+
+The ClusterPolicy manifest below tells Kyverno to watch for pods that
+land on our EKS Hybrid Nodes instance, and adds the *pod-deletion-cost*
+annotation to them.
+
+```bash
+$ cat <<EOF > policy.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: set-pod-deletion-cost
+  annotations:
+    policies.kyverno.io/title: Set Pod Deletion Cost
+    policies.kyverno.io/category: Pod Management
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Sets pod-deletion-cost label on nginx pods scheduled to hybrid compute nodes.
+spec:
+  rules:
+    - name: set-deletion-cost-for-nginx-on-hybrid
+      match:
+        any:
+        - resources:
+            kinds:
+              - Pod/binding
+      context:
+        - name: node
+          variable:
+            jmesPath: request.object.target.name
+            default: ''
+        - name: computeType
+          apiCall:
+            urlPath: "/api/v1/nodes/{{node}}"
+            jmesPath: "metadata.labels.\"eks.amazonaws.com/compute-type\" || 'empty'"
+      preconditions:
+        all:
+          - key: "{{ computeType }}"
+            operator: Equals
+            value: hybrid
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Pod
+            name: "{{ request.object.metadata.name }}"
+            namespace: "{{ request.object.metadata.namespace }}"
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              controller.kubernetes.io/pod-deletion-cost: "1"
+    - name: do-anything
+      match:
+        any:
+        - resources:
+            kinds:
+            - Pod/binding
+      mutate:
+        targets:
+          - apiVersion: v1
+            kind: Pod
+            name: "{{ request.object.metadata.name }}"
+            namespace: "{{ request.object.metadata.namespace }}"
+        patchStrategicMerge:
+          metadata:
+            labels:
+              touched-by-kyverno: "true"
+EOF
+```
+Apply that manifest to have Kyverno start watching.
+
+```bash
+$ kubectl apply -f policy.yaml
+```
+
+Now we'll deploy our sample workload. This will use the nodeAffinity rules discussed early to land 3 nginx pods on our hybrid node.
 
 ```bash
 $ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/deployment.yaml
@@ -27,64 +116,75 @@ $ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-node
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/deployment.yaml"}
 
-After that deployment rolls out we should see three nginx-deployment pods, all deployed to our hybrid node.
+After that deployment rolls out we see three nginx-deployment pods, all deployed
+to our hybrid node. We're using a custom output from kubectl so we can see the
+node and annotations all in one view. We see that Kyverno has applied our
+`pod-deletion-cost` annotation!
 
 ```bash
-$ kubectl get pods -o wide
-NAME                                READY   STATUS    RESTARTS   AGE     IP            NODE                   NOMINATED NODE   READINESS GATES
-nginx-deployment-7d7f668b68-4gjwh   1/1     Running   0          4m43s   10.53.0.53    mi-0c1ecca718b7fc1ca   <none>           <none>
-nginx-deployment-7d7f668b68-74jz5   1/1     Running   0          4m43s   10.53.0.99    mi-0c1ecca718b7fc1ca   <none>           <none>
-nginx-deployment-7d7f668b68-w652x   1/1     Running   0          4m43s   10.53.0.100   mi-0c1ecca718b7fc1ca   <none>           <none>
-```
-
-Install [Descheeduler](https://github.com/kubernetes-sigs/descheduler).
-Descheduler will be responsible for taking down any dangling pods left running
-on our EC2 nodes when we scale back down.
-
-```bash
-$ kubectl apply -k ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/descheduler/
+$ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
+NAME                                NODE                   ANNOTATIONS
+nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-fjswp   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
 ```
 
 Scale up and burst into cloud. The nginx deployment here is requesting an
 ureasonable amount of CPU (200m) for demonstration purposes. This means we can
-fit about 8 instances on our hybrid node. When we scale up to 12 instances of
+fit about 8 replicas on our hybrid node. When we scale up to 15 replicas of
 the pod, there is no room to schedule them. Given that we are using the
 `preferredDuringSchedulingIgnoredDuringExecution` affinity policy, this means
 that we start with our hybrid node. Anything that is unschedulable is allowed to
 be scheduled elsewhere (our cloud instances).
 
-```bash
-$ kubectl scale deployment nginx-deployment --replicas 12
-```
-
-Now when we run `kubectl get pods` we see that our extras have been deployed onto the EC2 instances attached to our EKS cluster as a Managed Node Group.
+Usually scaling would be based on CPU, Memory, or GPU, utilization. Here, we're
+just going to force the scale up.
 
 ```bash
-$ kubectl get pods -o wide
-NAME                                READY   STATUS    RESTARTS   AGE   IP              NODE                                          NOMINATED NODE   READINESS GATES
-nginx-deployment-7d7f668b68-466rg   1/1     Running   0          7s    10.42.127.211   ip-10-42-119-239.us-west-2.compute.internal   <none>           <none>
-nginx-deployment-7d7f668b68-dcgn4   1/1     Running   0          7s    10.42.187.246   ip-10-42-165-219.us-west-2.compute.internal   <none>           <none>
-nginx-deployment-7d7f668b68-fkdb6   1/1     Running   0          7s    10.53.0.98      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-fzg75   1/1     Running   0          7s    10.53.0.102     mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-gcsb8   1/1     Running   0          7s    10.53.0.82      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-lkv8z   1/1     Running   0          45s   10.53.0.27      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-pgfn9   1/1     Running   0          7s    10.53.0.81      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-rw2lg   1/1     Running   0          7s    10.42.187.240   ip-10-42-165-219.us-west-2.compute.internal   <none>           <none>
-nginx-deployment-7d7f668b68-sxzxc   1/1     Running   0          45s   10.53.0.87      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-t7xsj   1/1     Running   0          45s   10.53.0.5       mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-tv2lw   1/1     Running   0          7s    10.53.0.69      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-x62m2   1/1     Running   0          7s    10.42.155.144   ip-10-42-140-159.us-west-2.compute.internal   <none>           <none>
+$ kubectl scale deployment nginx-deployment --replicas 15
 ```
 
-Now when we scale back down, some instances will be left on our Managed Node
-Group. In a minute or less Descheduler will come around and clean that up. We'll
-use the `--watch` argument to watch and wait for that to happen.
+Now when we run `kubectl get pods`, with our custom colums, we see that our
+extras have been deployed onto the EC2 instances attached to our workshop EKS
+cluster. Kyverno has applied our `pod-deletion-cost` annotation to all of the
+pods that landed on our hybrid node, and left it off of all of the Pods that
+landed on EC2. When we scale back down, Kubernetes will delete all the *cheap*
+Pods first, Pods that have no cost on them. Kubernetes will then see all the
+others as equal and the normal deletion logic kicks in. Let's see that in action
+now.
+
+
+```bash
+$ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
+NAME                                NODE                                          ANNOTATIONS
+nginx-deployment-7474978d4f-8269p   ip-10-42-108-174.us-west-2.compute.internal   <none>
+nginx-deployment-7474978d4f-8f6cg   ip-10-42-163-36.us-west-2.compute.internal    <none>
+nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-bjbvx   ip-10-42-154-155.us-west-2.compute.internal   <none>
+nginx-deployment-7474978d4f-f55rj   ip-10-42-108-174.us-west-2.compute.internal   <none>
+nginx-deployment-7474978d4f-fjswp   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-jrcsl   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-mstwv   ip-10-42-154-155.us-west-2.compute.internal   <none>
+nginx-deployment-7474978d4f-q8nkj   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-smc9f   ip-10-42-163-36.us-west-2.compute.internal    <none>
+nginx-deployment-7474978d4f-ss76l   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-tbzf2   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-txxlw   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-wqbsd   ip-10-42-154-155.us-west-2.compute.internal   <none>
+```
+Let's scale our sample deployment back down to 3 again. We'll be left with three pods running on our Hybrid Node, which brings us back to or original state.
 
 ```bash
 $ kubectl scale deployment nginx-deployment --replicas 3
-$ kubectl get pods -o wide --watch
-...
-nginx-deployment-7d7f668b68-5jz2b   1/1     Running             0          2s    10.53.0.97      mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-kslfq   1/1     Running             0          3s    10.53.0.110     mi-0026d09f0152f3e60                          <none>           <none>
-nginx-deployment-7d7f668b68-qsqzx   1/1     Running             0          3s    10.53.0.111     mi-0026d09f0152f3e60                          <none>           <none>
+```
+
+Finally, just to be sure, let's make sure we're back down to 3 replicas running on our hybrid node.
+
+```bash
+$ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
+NAME                                NODE                   ANNOTATIONS
+nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-fjswp   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
+nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
 ```
