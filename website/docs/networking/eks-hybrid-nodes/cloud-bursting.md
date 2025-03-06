@@ -2,6 +2,7 @@
 title: "Cloud Bursting"
 sidebar_position: 20
 sidebar_custom_props: { "module": false }
+weight: 30 # used by test framework
 ---
 
 Now that we have our EKS Hybrid Node instance connected to the cluster, we can
@@ -30,7 +31,7 @@ Annotation effectlively tells Kubernetes to delete less *expensive* pods first.
 
 Let's get to work. We'll use Helm to install Kyverno and we'll deploy the policy included below.
 
-```bash
+```bash timeout=300 wait=30
 $ helm repo add kyverno https://kyverno.github.io/kyverno/
 $ helm install kyverno kyverno/kyverno --version 3.3.7 -n kyverno --create-namespace -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kyverno/values.yaml
 
@@ -40,7 +41,7 @@ The ClusterPolicy manifest below tells Kyverno to watch for pods that
 land on our EKS Hybrid Nodes instance, and adds the *pod-deletion-cost*
 annotation to them.
 
-```bash
+```bash timeout=300 wait=30
 $ cat <<EOF > policy.yaml
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -104,13 +105,13 @@ EOF
 ```
 Apply that manifest to have Kyverno start watching.
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl apply -f policy.yaml
 ```
 
 Now we'll deploy our sample workload. This will use the nodeAffinity rules discussed early to land 3 nginx pods on our hybrid node.
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/deployment.yaml
 ```
 
@@ -121,7 +122,7 @@ to our hybrid node. We're using a custom output from kubectl so we can see the
 node and annotations all in one view. We see that Kyverno has applied our
 `pod-deletion-cost` annotation!
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
 NAME                                NODE                   ANNOTATIONS
 nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
@@ -140,7 +141,7 @@ be scheduled elsewhere (our cloud instances).
 Usually scaling would be based on CPU, Memory, or GPU, utilization. Here, we're
 just going to force the scale up.
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl scale deployment nginx-deployment --replicas 15
 ```
 
@@ -154,7 +155,7 @@ others as equal and the normal deletion logic kicks in. Let's see that in action
 now.
 
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
 NAME                                NODE                                          ANNOTATIONS
 nginx-deployment-7474978d4f-8269p   ip-10-42-108-174.us-west-2.compute.internal   <none>
@@ -175,13 +176,13 @@ nginx-deployment-7474978d4f-wqbsd   ip-10-42-154-155.us-west-2.compute.internal 
 ```
 Let's scale our sample deployment back down to 3 again. We'll be left with three pods running on our Hybrid Node, which brings us back to or original state.
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl scale deployment nginx-deployment --replicas 3
 ```
 
 Finally, just to be sure, let's make sure we're back down to 3 replicas running on our hybrid node.
 
-```bash
+```bash timeout=300 wait=30
 $ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
 NAME                                NODE                   ANNOTATIONS
 nginx-deployment-7474978d4f-9wbgw   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
