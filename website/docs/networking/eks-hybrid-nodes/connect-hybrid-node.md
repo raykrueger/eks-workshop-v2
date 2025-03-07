@@ -22,8 +22,9 @@ $ eval $(aws ssm create-activation \
 
 With our activation created, we can now create a `nodeconfig.yaml` which will be
 reference when we join our instance to the cluster. This utilizes the SSM
-`ACTIVATION_CODE` and `ACTIVATION_ID` created in the previous step as well as
-the `EKS_CLUSTER_NAME` name and `AWS_REGION` environment variables.
+`ACTIVATION_CODE` and `ACTIVATION_ID` environment variables created in the
+previous step as well as the `EKS_CLUSTER_NAME` name and `AWS_REGION`
+environment variables provided by the workshop.
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/nodeconfig.yaml"}
 
@@ -64,7 +65,7 @@ ip-10-42-163-120.us-west-2.compute.internal   Ready      <none>   1h   v1.31.3-e
 mi-015a9aae5526e2192                          NotReady   <none>   5m     v1.31.4-eks-aeac579
 ```
 
-Great! The node appears but with a `NotReady` status. This is because we must install a CNI for hybrid nodes to become ready to serve workloads. So, let us first add the Cilium Helm repo.
+Great! The node appears but with a `NotReady` status. This is because we must install a CNI for hybrid node to become ready to serve workloads. So, let us first add the Cilium Helm repo.
 
 ```bash timeout=300 wait=30
 $ helm repo add cilium https://helm.cilium.io/
