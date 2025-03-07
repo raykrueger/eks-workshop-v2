@@ -131,3 +131,4 @@ DCGM
 Mountpoint
 nodeadm
 containerd
+nodeconfig

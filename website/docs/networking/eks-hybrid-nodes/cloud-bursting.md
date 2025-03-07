@@ -5,20 +5,16 @@ sidebar_custom_props: { "module": false }
 weight: 30 # used by test framework
 ---
 
-Now that we have our EKS Hybrid Node instance connected to the cluster, we can
-deploy a sample workload. The workload we are going to deploy will be used to
-simulate a "cloud bursting" use case. Below is a Kubernetes manifest that uses
-`nodeAffinity` rules to tell the Kubernetes scheduler to *prefer* cluster nodes
-with the `eks.amazonaws.com/compute-type=hybrid` label and value.
+Building on our previous deployment, we'll now explore a scenario that simulates a "cloud bursting" use case. This will demonstrate how EKS Hybrid Nodes can be used to handle overflow workloads or specific computational needs. We'll deploy a new workload that, like our previous example, uses `nodeAffinity` to prefer our hybrid nodes.
 
 The `preferredDuringSchedulingIgnoredDuringExecution` strategy tells Kubernetes
-to *prefer* our Hybrid Node when scheduling but *ignore* that during execution.
+to _prefer_ our Hybrid Node when scheduling but _ignore_ that during execution.
 This means that when there is no more room on our single hybrid node, these pods
 are free to schedule elsewhere in the cluster, meaning our EC2 instances. Which
 is great! That gives us our cloud bursting we wanted. However, the
-*IgnoredDuringExecution* part means that when we scale back down, Kubernetes
+_IgnoredDuringExecution_ part means that when we scale back down, Kubernetes
 will randomly remove pods and not worry about where they are running, because
-that is *ignored during execution*. Generally speaking, Kubernetes will remove
+that is _ignored during execution_. Generally speaking, Kubernetes will remove
 older pods first, which would be the pods running on our Hybrid Nodes. We don't
 want that!
 
@@ -27,7 +23,7 @@ for Kubernetes. Kyverno will be setup with a policy that watches for Pods that
 get scheduled to our hybrid node, and will add an Annotation to that running
 pod. The
 [controller.kubernetes.io/pod-deletion-cost](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/#pod-deletion-cost)
-Annotation effectlively tells Kubernetes to delete less *expensive* pods first.
+Annotation effectively tells Kubernetes to delete less _expensive_ pods first.
 
 Let's get to work. We'll use Helm to install Kyverno and we'll deploy the policy included below.
 
@@ -38,7 +34,7 @@ $ helm install kyverno kyverno/kyverno --version 3.3.7 -n kyverno --create-names
 ```
 
 The ClusterPolicy manifest below tells Kyverno to watch for pods that
-land on our EKS Hybrid Nodes instance, and adds the *pod-deletion-cost*
+land on our EKS Hybrid Nodes instance, and adds the _pod-deletion-cost_
 annotation to them.
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/kyverno/policy.yaml"}
@@ -71,7 +67,7 @@ nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubern
 ```
 
 Let's scale up and burst into the cloud! The nginx deployment here is requesting
-an ureasonable amount of CPU (200m) for demonstration purposes. This means we
+an unreasonable amount of CPU (200m) for demonstration purposes. This means we
 can fit about 8 replicas on our hybrid node. When we scale up to 15 replicas of
 the pod, there is no room to schedule them. Given that we are using the
 `preferredDuringSchedulingIgnoredDuringExecution` affinity policy, this means
@@ -85,15 +81,14 @@ Here, we're just going to force the scale up.
 $ kubectl scale deployment nginx-deployment --replicas 15
 ```
 
-Now when we run `kubectl get pods`, with our custom colums, we see that our
+Now when we run `kubectl get pods`, with our custom columns, we see that our
 extras have been deployed onto the EC2 instances attached to our workshop EKS
 cluster. Kyverno has applied our `pod-deletion-cost` annotation to all of the
 pods that landed on our hybrid node, and left it off of all of the Pods that
-landed on EC2. When we scale back down, Kubernetes will delete all the *cheap*
+landed on EC2. When we scale back down, Kubernetes will delete all the _cheap_
 Pods first, Pods that have no cost on them. Kubernetes will then see all the
 others as equal and the normal deletion logic kicks in. Let's see that in action
 now.
-
 
 ```bash timeout=300 wait=30
 $ kubectl get pods  -o=custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,ANNOTATIONS:.metadata.annotations'
@@ -114,6 +109,7 @@ nginx-deployment-7474978d4f-tbzf2   mi-0ebe45e33a53e04f2                        
 nginx-deployment-7474978d4f-txxlw   mi-0ebe45e33a53e04f2                          map[controller.kubernetes.io/pod-deletion-cost:1]
 nginx-deployment-7474978d4f-wqbsd   ip-10-42-154-155.us-west-2.compute.internal   <none>
 ```
+
 Let's scale our sample deployment back down to 3 again. We'll be left with three pods running on our Hybrid Node, which brings us back to or original state.
 
 ```bash timeout=300 wait=30
