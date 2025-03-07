@@ -24,7 +24,7 @@ This module runs EKS Hybrid Nodes on EC2 for lab and demonstration purposes only
 :::tip Before you start
 Prepare your environment for this section:
 
-```bash timeout=420 wait=30
+```bash timeout=600 wait=30
 $ prepare-environment networking/eks-hybrid-nodes
 ```
 :::
