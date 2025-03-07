@@ -4,6 +4,8 @@ set -e
 
 logmessage "Cleaning up EKS Hybrid Nodes Module"
 
+kubectl delete -k ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kustomize --ignore-not-found=true
+
 kubectl delete deployment nginx-deployment --ignore-not-found=true
 kubectl delete clusterpolicies.kyverno.io set-pod-deletion-cost --ignore-not-found 
 
