@@ -24,6 +24,7 @@ check the status of the ingress, note the `Address` field of the ingress object:
 
 ```bash
 $ kubectl get ingress -n nginx-remote 
+$ ADDRESS=$(kubectl get ingress -n nginx-remote nginx -o jsonpath="{.status.loadBalancer.ingress[*].hostname}{'\n'}")
 ```
 
 The provisioning of the Application Load Balancer may take a couple minutes.  Check the status of the load balancer created for the ingress with command:
@@ -37,7 +38,7 @@ Continue to next step if the state changes to 'Active'.
 Copy the Address value of Ingress, or the DNSName of the Load Balancer information, paste it into browser address bar and view the page.  Or run
 
 ```bash
-$ curl http://<Address>
+$ curl $Address
 ```
 
 The output on the web page or curl output should look like
