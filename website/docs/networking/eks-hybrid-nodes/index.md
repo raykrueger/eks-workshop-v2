@@ -2,6 +2,7 @@
 title: "Amazon EKS Hybrid Nodes"
 sidebar_position: 50
 sidebar_custom_props: { "module": true }
+weight: 10 # used by test framework
 ---
 
 :::caution Preview
@@ -23,7 +24,7 @@ This module runs EKS Hybrid Nodes on EC2 for lab and demonstration purposes only
 :::tip Before you start
 Prepare your environment for this section:
 
-```bash timeout=300 wait=30
+```bash timeout=420 wait=30
 $ prepare-environment networking/eks-hybrid-nodes
 ```
 :::

@@ -17,5 +17,3 @@ uninstall-helm-chart kyverno kyverno
 kubectl delete namespace kyverno --ignore-not-found
 
 kubectl delete nodes -l eks.amazonaws.com/compute-type=hybrid --ignore-not-found=true
-
-kubectl delete -k ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/descheduler/ --ignore-not-found=true
