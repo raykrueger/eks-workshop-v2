@@ -41,75 +41,15 @@ The ClusterPolicy manifest below tells Kyverno to watch for pods that
 land on our EKS Hybrid Nodes instance, and adds the *pod-deletion-cost*
 annotation to them.
 
-```bash timeout=300 wait=30
-$ cat <<EOF > policy.yaml
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: set-pod-deletion-cost
-  annotations:
-    policies.kyverno.io/title: Set Pod Deletion Cost
-    policies.kyverno.io/category: Pod Management
-    policies.kyverno.io/severity: medium
-    policies.kyverno.io/description: >-
-      Sets pod-deletion-cost label on nginx pods scheduled to hybrid compute nodes.
-spec:
-  rules:
-    - name: set-deletion-cost-for-nginx-on-hybrid
-      match:
-        any:
-        - resources:
-            kinds:
-              - Pod/binding
-      context:
-        - name: node
-          variable:
-            jmesPath: request.object.target.name
-            default: ''
-        - name: computeType
-          apiCall:
-            urlPath: "/api/v1/nodes/{{node}}"
-            jmesPath: "metadata.labels.\"eks.amazonaws.com/compute-type\" || 'empty'"
-      preconditions:
-        all:
-          - key: "{{ computeType }}"
-            operator: Equals
-            value: hybrid
-      mutate:
-        targets:
-          - apiVersion: v1
-            kind: Pod
-            name: "{{ request.object.metadata.name }}"
-            namespace: "{{ request.object.metadata.namespace }}"
-        patchStrategicMerge:
-          metadata:
-            annotations:
-              controller.kubernetes.io/pod-deletion-cost: "1"
-    - name: do-anything
-      match:
-        any:
-        - resources:
-            kinds:
-            - Pod/binding
-      mutate:
-        targets:
-          - apiVersion: v1
-            kind: Pod
-            name: "{{ request.object.metadata.name }}"
-            namespace: "{{ request.object.metadata.namespace }}"
-        patchStrategicMerge:
-          metadata:
-            labels:
-              touched-by-kyverno: "true"
-EOF
-```
-Apply that manifest to have Kyverno start watching.
+::yaml{file="manifests/modules/networking/eks-hybrid-nodes/kyverno/policy.yaml"}
+
+Let's apply that now.
 
 ```bash timeout=300 wait=30
-$ kubectl apply -f policy.yaml
+$ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kyverno/policy.yaml
 ```
 
-Now we'll deploy our sample workload. This will use the nodeAffinity rules discussed early to land 3 nginx pods on our hybrid node.
+Now we'll deploy our sample workload. This will use the nodeAffinity rules discussed earlier to land 3 nginx pods on our hybrid node.
 
 ```bash timeout=300 wait=30
 $ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/deployment.yaml
@@ -130,16 +70,16 @@ nginx-deployment-7474978d4f-fjswp   mi-0ebe45e33a53e04f2   map[controller.kubern
 nginx-deployment-7474978d4f-k2sjd   mi-0ebe45e33a53e04f2   map[controller.kubernetes.io/pod-deletion-cost:1]
 ```
 
-Scale up and burst into cloud. The nginx deployment here is requesting an
-ureasonable amount of CPU (200m) for demonstration purposes. This means we can
-fit about 8 replicas on our hybrid node. When we scale up to 15 replicas of
+Let's scale up and burst into the cloud! The nginx deployment here is requesting
+an ureasonable amount of CPU (200m) for demonstration purposes. This means we
+can fit about 8 replicas on our hybrid node. When we scale up to 15 replicas of
 the pod, there is no room to schedule them. Given that we are using the
 `preferredDuringSchedulingIgnoredDuringExecution` affinity policy, this means
 that we start with our hybrid node. Anything that is unschedulable is allowed to
 be scheduled elsewhere (our cloud instances).
 
-Usually scaling would be based on CPU, Memory, or GPU, utilization. Here, we're
-just going to force the scale up.
+Usually scaling would be automatic based on CPU, Memory, or GPU, utilization.
+Here, we're just going to force the scale up.
 
 ```bash timeout=300 wait=30
 $ kubectl scale deployment nginx-deployment --replicas 15

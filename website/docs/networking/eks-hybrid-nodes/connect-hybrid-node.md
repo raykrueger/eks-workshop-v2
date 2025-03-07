@@ -5,33 +5,32 @@ sidebar_custom_props: { "module": false }
 weight: 20 # used by test framework
 ---
 
-Amazon EKS Hybrid Nodes use temporary IAM credentials provisioned by AWS SSM hybrid activations or AWS IAM Roles Anywhere to authenticate with the Amazon EKS cluster. In this workshop, we will use SSM hybrid activations. Run the following command to create a new activation and store the Activation Code and ID in `ssm-activation.json`.
+Amazon EKS Hybrid Nodes use temporary IAM credentials provisioned by AWS SSM
+hybrid activations or AWS IAM Roles Anywhere to authenticate with the Amazon EKS
+cluster. In this workshop, we will use SSM hybrid activations. Run the following
+to create the activation and populate the `ACTIVATION_ID` and `ACTIVATION_CODE`
+environment variables.
 
 ```bash timeout=300 wait=30
-$ aws ssm create-activation \
+$ eval $(aws ssm create-activation \
 --default-instance-name hybrid-ssm-node \
 --iam-role $HYBRID_ROLE_NAME \
 --registration-limit 1 \
---region $AWS_REGION > ssm-activation.json
+--region $AWS_REGION \
+| jq -r '"export ACTIVATION_ID=\(.ActivationId) ACTIVATION_CODE=\(.ActivationCode)"')
 ```
 
-With our activation created, we can now create a `nodeconfig.yaml` which will be reference when we join our instance to the cluster. This utilizes the SSM Activation created in the previous step as well as the cluster name and region.
+With our activation created, we can now create a `nodeconfig.yaml` which will be
+reference when we join our instance to the cluster. This utilizes the SSM
+`ACTIVATION_CODE` and `ACTIVATION_ID` created in the previous step as well as
+the `EKS_CLUSTER_NAME` name and `AWS_REGION` environment variables.
 
-```bash timeout=300 wait=30
-$ cat <<EOF > nodeconfig.yaml
-apiVersion: node.eks.aws/v1alpha1
-kind: NodeConfig
-spec:
-  cluster:
-    name: $EKS_CLUSTER_NAME
-    region: $AWS_REGION
-  hybrid:
-    ssm:
-      activationCode: $(jq -r .ActivationCode ssm-activation.json)
-      activationId: $(jq -r .ActivationId ssm-activation.json)
-EOF
+::yaml{file="manifests/modules/networking/eks-hybrid-nodes/nodeconfig.yaml"}
+
+```bash
+$ cat ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/nodeconfig.yaml \
+| envsubst > nodeconfig.yaml
 ```
-
 Let's copy that nodeconfig.yaml file over to our hybrid node instance.
 
 ```bash timeout=300 wait=30
@@ -43,13 +42,15 @@ $ scp -i private-key.pem nodeconfig.yaml ubuntu@$HYBRID_NODE_IP:/home/ubuntu/nod
 Next, let's install the hybrid nodes dependencies using `nodeadm` on our EC2 instance. The hybrid nodes dependencies include containerd, kubelet, kubectl, and AWS SSM or AWS IAM Roles Anywhere components. See Hybrid nodes [nodeadm reference](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-nodeadm.html) for more information on the components and file locations installed by nodeadm install.
 
 ```bash timeout=300 wait=30
-$ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP "sudo nodeadm install $EKS_CLUSTER_VERSION --credential-provider ssm"
+$ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP \
+"sudo nodeadm install $EKS_CLUSTER_VERSION --credential-provider ssm"
 ```
 
 With our dependencies installed, and our `nodeconfig.yaml` in place, we initialize the instance as a hybrid node.
 
 ```bash timeout=300 wait=30
-$ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP "sudo nodeadm init -c file://nodeconfig.yaml"
+$ ssh -i private-key.pem ubuntu@$HYBRID_NODE_IP \
+"sudo nodeadm init -c file://nodeconfig.yaml"
 ```
 
 Lets see if our hybrid node has joined the cluster successfully.
