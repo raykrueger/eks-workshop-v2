@@ -37,9 +37,8 @@ Great! The three `nginx` pods are running on our hybrid node as expected.
 The provisioning of the Application Load Balancer may take a couple minutes. Before continuing, ensure the load balancer is in an `active` state. Check the status of the load balancer with the following command:
 
 ```bash
-$ aws elbv2 describe-load-balancers --query 'LoadBalancers[?contains(LoadBalancerName, `k8s-nginxrem-nginx`) == `true`]' | grep -A 1 "State"
-        "State": {
-            "Code": "active"
+$ aws elbv2 describe-load-balancers --query 'LoadBalancers[?contains(LoadBalancerName, `k8s-nginxrem-nginx`) == `true`]' --query 'LoadBalancers[0].State.Code'
+"active"
 ```
 
 :::

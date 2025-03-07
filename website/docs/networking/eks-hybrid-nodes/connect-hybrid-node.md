@@ -82,10 +82,10 @@ $ helm install cilium cilium/cilium \
 
 ::yaml{file="manifests/modules/networking/eks-hybrid-nodes/cilium-values.yaml"}
 
-After installing Cilium our Hybrid Node should be up, happy and healthy.
+After installing Cilium our Hybrid Node should come up, happy and healthy.
 
 ```bash timeout=300 wait=30
-$ kubectl get nodes
+$ kubectl wait --for=condition=Ready nodes --all --timeout=2m
 NAME                                          STATUS     ROLES    AGE    VERSION
 ip-10-42-118-191.us-west-2.compute.internal   Ready      <none>   1h   v1.31.3-eks-59bf375
 ip-10-42-154-9.us-west-2.compute.internal     Ready      <none>   1h   v1.31.3-eks-59bf375
