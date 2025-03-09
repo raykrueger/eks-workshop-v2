@@ -46,13 +46,13 @@ $ aws elbv2 describe-load-balancers --query 'LoadBalancers[?contains(LoadBalance
 Once the Application Load Balancer is active, we can check the `Address` associated with the Ingress to retrieve the DNS name of the Application Load Balancer:
 
 ```bash
-$ ADDRESS=$(kubectl get ingress -n nginx-remote nginx -o jsonpath="{.status.loadBalancer.ingress[*].hostname}{'\n'}") && echo $ADDRESS
+$ export ADDRESS=$(kubectl get ingress -n nginx-remote nginx -o jsonpath="{.status.loadBalancer.ingress[*].hostname}{'\n'}") && echo $ADDRESS
 k8s-nginxrem-nginx-03efa1e84c-012345678.us-west-2.elb.amazonaws.com
 ```
 
 With the DNS name of the Application Load Balancer, we can access our deployment through the command line or by entering the address into a web browser. The ALB will then route the traffic to the appropriate pods based on the Ingress rules.
 
-```bash
+```bash test=false
 $ curl $ADDRESS
 Connected to 10.53.0.5 on mi-027504c0970455ba5
 ```
@@ -61,15 +61,19 @@ In the output from curl or the browser, we can see the `10.53.0.X` IP address of
 
 Rerun the curl command or refresh your browser a few times and note that the pod IP changes in each request and the node name stays the same, as all pods are scheduled on the same remote node.
 
-```bash
-$ curl $ADDRESS
+```bash test=false
+$ curl -s $ADDRESS
 Connected to 10.53.0.5 on mi-027504c0970455ba5
-$ curl $ADDRESS
+$ curl -s $ADDRESS
 Connected to 10.53.0.11 on mi-027504c0970455ba5
-$ curl $ADDRESS
+$ curl -s $ADDRESS
 Connected to 10.53.0.84 on mi-027504c0970455ba5
 ```
 
 We've successfully deployed a workload to our EKS Hybrid Node, configured it to be accessed through an Application Load Balancer, and verified that the traffic is being properly routed to our pods running on the remote node.
 
-Let's move on to exploring additional use cases of EKS Hybrid Nodes.
+Before we move on to explore more usecases with EKS Hybrid Nodes, let's do a little cleanup.
+
+```bash timeout=300 wait=30
+$ kubectl delete -k ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kustomize --ignore-not-found=true
+```
