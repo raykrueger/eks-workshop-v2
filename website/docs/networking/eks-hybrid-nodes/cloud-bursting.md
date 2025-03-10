@@ -45,6 +45,13 @@ Let's apply that now.
 $ kubectl apply -f ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/kyverno/policy.yaml
 ```
 
+Before we can test our workload, we need to make wait for Kyverno to be up and
+running so it can enforce the policy we just set up.
+
+```bash timeout=300 wait=30
+$ kubectl wait --for=condition=Ready pods --all -n kyverno --timeout=2m
+```
+
 Now we'll deploy our sample workload. This will use the nodeAffinity rules discussed earlier to land 3 nginx pods on our hybrid node.
 
 ```bash timeout=300 wait=30

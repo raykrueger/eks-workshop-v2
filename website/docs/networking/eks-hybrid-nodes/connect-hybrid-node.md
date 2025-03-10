@@ -76,7 +76,8 @@ With the repo added, we can install Cilium using the configuration provided belo
 ```bash timeout=300 wait=30
 $ helm install cilium cilium/cilium \
 --version 1.17.1 \
---namespace kube-system \
+--namespace cilium \
+--create-namespace \
 --values ~/environment/eks-workshop/modules/networking/eks-hybrid-nodes/cilium-values.yaml
 ```
 
