@@ -164,6 +164,10 @@ module "hybrid_node" {
   source  = "terraform-aws-modules/ec2-instance/aws"
   version = "~> 5.7.1"
 
+  metadata_options = {
+    "http_tokens": "required"
+  }
+
   ami_ssm_parameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 
   instance_type = "m5.large"
